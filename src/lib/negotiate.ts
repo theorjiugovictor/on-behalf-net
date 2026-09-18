@@ -4,33 +4,47 @@
  * Three rules hold no matter which model is behind it, or whether any model is:
  *
  *  1. The model never emits a commitment directly. It proposes a structured
- *     offer; `evaluateOffer` decides whether that offer may leave the process,
- *     and `clampToMandate` pulls near-misses back inside the bounds.
+ *     deal; `evaluateDeal` decides whether that deal may leave the process, and
+ *     `clampToMandate` pulls near-misses back inside the bounds.
  *  2. Proposing is not committing. A counter-offer only has to be inside the
  *     mandate. *Accepting* is the binding act, and that is where the human
  *     approval gate sits.
  *  3. If the model is unavailable, a deterministic concession strategy takes
  *     over and the negotiation still completes. No key is required to demo.
+ *
+ * The strategy is term-agnostic: it concedes along whatever ordered terms the
+ * mandate declares, weighted by how much each one matters, and decides when to
+ * close by comparing utilities rather than prices.
  */
 
 import { chatJSON } from "./llm";
-import { clampToMandate, describeMandate, evaluateOffer, totalValueOf } from "./mandate";
+import {
+  clampToMandate,
+  describeMandate,
+  evaluateDeal,
+  specFor,
+  summariseDeal,
+  unmandatedTerms,
+  utilityOf,
+} from "./mandate";
+import { concedeTerm, formatTermValue, isOrdered, openingOrdinal, fromOrdinal, typeOfBound } from "./terms";
 import {
   buildEnvelope,
   counterpartOf,
-  isWellFormedOffer,
-  lastOfferFrom,
-  summariseOffer,
+  isWellFormedDeal,
+  lastDealFrom,
   turnsBy,
   whoseTurn,
 } from "./protocol";
 import { getAgent, getCard, isLocal, putThread } from "./store";
 import { newId } from "./identity";
 import type {
+  Deal,
   Envelope,
   LocalAgent,
   Mandate,
-  Offer,
+  TermSpec,
+  TermValue,
   Thread,
   ThreadStatus,
   TurnRecord,
@@ -38,10 +52,8 @@ import type {
 
 /** After this many turns each, an unconverged thread is abandoned. */
 const MAX_ROUNDS = 8;
-/** Price gap, as a fraction, below which another round is not worth the delay. */
-const CONVERGENCE = 0.02;
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
+/** Utility gain, 0–1, below which another round is not worth the delay. */
+const CONVERGENCE = 0.045;
 
 // ---------------------------------------------------------------------------
 // Thread lifecycle
@@ -85,15 +97,15 @@ function applyTerminalState(thread: Thread, turn: TurnRecord) {
   const { type, body, from } = turn.envelope;
   if (type === "accept") {
     thread.status = "accepted";
-    thread.settledOffer = body.offer;
+    thread.settledDeal = body.deal;
   } else if (type === "reject") {
     thread.status = "rejected";
   } else if (type === "escalate") {
     thread.status = "awaiting-approval";
-    if (body.offer && turn.verdict) {
+    if (body.deal && turn.verdict) {
       thread.pendingApproval = {
         agentId: from,
-        offer: body.offer,
+        deal: body.deal,
         reason: body.reason ?? "Human sign-off required before this commitment is binding.",
         verdict: turn.verdict,
       };
@@ -115,19 +127,15 @@ export function ingestInbound(
   envelope: Envelope,
   recipient: LocalAgent,
 ): ThreadStatus {
-  const offer = envelope.body.offer;
+  const deal = envelope.body.deal;
 
   if (envelope.type === "reject") {
     return (thread.status = "rejected");
   }
-
   if (envelope.type !== "accept") return thread.status;
+  if (!deal) return (thread.status = "accepted");
 
-  if (!offer) {
-    return (thread.status = "accepted");
-  }
-
-  const verdict = evaluateOffer(offer, recipient.mandate);
+  const verdict = evaluateDeal(deal, recipient.mandate);
 
   if (verdict.decision === "violates-mandate") {
     // They accepted terms we cannot honour. Say so on the wire rather than
@@ -154,14 +162,14 @@ export function ingestInbound(
   if (verdict.decision === "needs-approval") {
     thread.pendingApproval = {
       agentId: recipient.card.id,
-      offer,
+      deal,
       reason: verdict.approvalReason ?? "Human sign-off required before this becomes binding.",
       verdict,
     };
     return (thread.status = "awaiting-approval");
   }
 
-  thread.settledOffer = offer;
+  thread.settledDeal = deal;
   return (thread.status = "accepted");
 }
 
@@ -173,53 +181,51 @@ async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> 
   const me = agent.card.id;
   const them = counterpartOf(thread, me);
   const mandate = agent.mandate;
-  const theirOffer = lastOfferFrom(thread, them);
-  const myLastOffer = lastOfferFrom(thread, me);
+  const theirDeal = lastDealFrom(thread, them);
+  const myLastDeal = lastDealFrom(thread, me);
   const round = turnsBy(thread, me);
 
-  const sign = (type: Parameters<typeof buildEnvelope>[0]["type"], body: Parameters<typeof buildEnvelope>[0]["body"]) =>
+  const sign = (
+    type: Parameters<typeof buildEnvelope>[0]["type"],
+    body: Parameters<typeof buildEnvelope>[0]["body"],
+  ) =>
     buildEnvelope({ from: me, to: them, threadId: thread.id, type, body, privateKey: agent.privateKey });
 
   // --- Opening move ---
-  if (!theirOffer) {
-    const offer = openingOffer(mandate);
+  if (!theirDeal) {
+    const deal = openingDeal(mandate);
     const rationale =
-      (await draftRationale(agent, thread, offer, undefined, "opening")) ??
-      openingRationale(agent, offer);
+      (await draftRationale(agent, thread, deal, "opening")) ?? openingRationale(agent, deal);
     return {
-      envelope: sign("propose", { offer, rationale, card: agent.card }),
-      verdict: evaluateOffer(offer, mandate),
+      envelope: sign("propose", { deal, rationale, card: agent.card }),
+      verdict: evaluateDeal(deal, mandate),
     };
   }
 
-  // --- Is their offer acceptable to us? ---
-  const theirVerdict = evaluateOffer(theirOffer, mandate);
+  // --- Is their deal acceptable to us? ---
+  const theirVerdict = evaluateDeal(theirDeal, mandate);
   const acceptable = theirVerdict.decision !== "violates-mandate";
   const exhausted = round >= MAX_ROUNDS;
 
-  // Take the deal when haggling on would not improve it: either their price
-  // already beats the counter we were about to make, or the remaining gap is
+  // Take the deal when haggling on would not improve it: either their terms
+  // already beat the counter we were about to make, or the remaining gain is
   // too small to be worth another round. Computed from the deterministic
   // strategy so the decision to close never depends on the model.
-  const nextCounter = heuristicCounter(mandate, myLastOffer, theirOffer, round).offer;
-  const beatsOurNextMove =
-    mandate.role === "seller"
-      ? theirOffer.unitPrice >= nextCounter.unitPrice
-      : theirOffer.unitPrice <= nextCounter.unitPrice;
-  const converged = myLastOffer
-    ? priceGap(myLastOffer, theirOffer) <= CONVERGENCE || beatsOurNextMove
-    : beatsOurNextMove;
+  const nextMove = heuristicCounter(mandate, myLastDeal, theirDeal, round);
+  const theirUtility = theirVerdict.utility;
+  const nextUtility = utilityOf(nextMove.deal, mandate);
+  const converged = theirUtility >= nextUtility || nextUtility - theirUtility <= CONVERGENCE;
 
   if (acceptable && (converged || exhausted)) {
     // Accepting is the binding act, so this is the approval gate.
     if (theirVerdict.decision === "needs-approval") {
       return {
         envelope: sign("escalate", {
-          offer: theirOffer,
+          deal: theirDeal,
           reason: theirVerdict.approvalReason,
           rationale:
-            `Terms are inside my mandate and we have converged at ` +
-            `${summariseOffer(theirOffer)}. This exceeds my authority to close, so ` +
+            `Terms are inside my mandate and we have converged on ` +
+            `${summariseDeal(theirDeal, mandate)}. This exceeds my authority to close, so ` +
             `I have referred it to a human at ${agent.card.name}.`,
         }),
         verdict: theirVerdict,
@@ -227,10 +233,10 @@ async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> 
     }
     return {
       envelope: sign("accept", {
-        offer: theirOffer,
+        deal: theirDeal,
         rationale:
-          (await draftRationale(agent, thread, theirOffer, theirOffer, "accept")) ??
-          `Agreed at ${summariseOffer(theirOffer)}. This sits inside my mandate and I can close it.`,
+          (await draftRationale(agent, thread, theirDeal, "accept")) ??
+          `Agreed on ${summariseDeal(theirDeal, mandate)}. That sits inside my mandate and I can close it.`,
       }),
       verdict: theirVerdict,
     };
@@ -241,7 +247,7 @@ async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> 
       envelope: sign("reject", {
         reason: "No overlap found inside my mandate within the available rounds.",
         rationale:
-          `I cannot reach ${summariseOffer(theirOffer)} without breaching my mandate, ` +
+          `I cannot reach ${summariseDeal(theirDeal, mandate)} without breaching my mandate, ` +
           `and we have run out of room to converge.`,
       }),
       verdict: theirVerdict,
@@ -249,14 +255,14 @@ async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> 
   }
 
   // --- Counter ---
-  const proposed = (await modelCounter(agent, thread, theirOffer)) ?? heuristicCounter(mandate, myLastOffer, theirOffer, round);
+  const proposed = (await modelCounter(agent, thread, theirDeal)) ?? nextMove;
 
-  const verdict = evaluateOffer(proposed.offer, mandate);
-  let offer = proposed.offer;
+  const verdict = evaluateDeal(proposed.deal, mandate);
+  let deal = proposed.deal;
   let clamped: TurnRecord["clamped"];
 
   if (verdict.decision === "violates-mandate") {
-    const fixed = clampToMandate(proposed.offer, mandate);
+    const fixed = clampToMandate(proposed.deal, mandate);
     if (!fixed) {
       return {
         envelope: sign("reject", {
@@ -266,13 +272,21 @@ async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> 
         verdict,
       };
     }
-    clamped = { from: proposed.offer, violations: verdict.violations };
-    offer = fixed;
+    clamped = { from: proposed.deal, violations: verdict.violations };
+    deal = fixed;
   }
 
+  // Tell them plainly when we have dropped an ask we have no authority over,
+  // rather than letting it disappear from the thread.
+  const ignored = unmandatedTerms(theirDeal, mandate);
+  const rationale = ignored.length
+    ? `${proposed.rationale} I have no mandate covering ${ignored.map((t) => `"${t}"`).join(", ")}, ` +
+      `so I have left ${ignored.length > 1 ? "them" : "it"} out rather than agree to ${ignored.length > 1 ? "them" : "it"}.`
+    : proposed.rationale;
+
   return {
-    envelope: sign("counter", { offer, rationale: proposed.rationale }),
-    verdict: evaluateOffer(offer, mandate),
+    envelope: sign("counter", { deal, rationale }),
+    verdict: evaluateDeal(deal, mandate),
     clamped,
   };
 }
@@ -281,138 +295,114 @@ async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> 
 // Strategy
 // ---------------------------------------------------------------------------
 
-function openingOffer(mandate: Mandate): Offer {
-  const seller = mandate.role === "seller";
-  // Both sides anchor roughly the same distance outside the likely zone of
-  // agreement, so neither wins purely on having opened more aggressively.
-  const anchor = seller
-    ? (mandate.floorUnitPrice ?? 100) * 1.28
-    : (mandate.ceilingUnitPrice ?? 100) * 0.76;
-  const span = mandate.maxVolume - mandate.minVolume;
-  return {
-    sku: mandate.sku,
-    currency: mandate.currency,
-    unitPrice: round2(anchor),
-    // Sellers open asking for more volume, buyers for less.
-    volume: Math.round(mandate.minVolume + span * (seller ? 0.45 : 0.25)),
-    termMonths: seller ? mandate.maxTermMonths : Math.max(3, Math.round(mandate.maxTermMonths * 0.5)),
-    incoterm: mandate.allowedIncoterms[0],
-    paymentTermsDays: seller ? Math.round(mandate.maxPaymentTermsDays * 0.4) : mandate.maxPaymentTermsDays,
-    clauses: [],
-  };
+/** Every term at this party's opening position. */
+export function openingDeal(mandate: Mandate): Deal {
+  const terms: Record<string, TermValue> = {};
+  for (const spec of mandate.terms) {
+    terms[spec.key] = openingValue(spec);
+  }
+  return { subject: mandate.subject, terms };
 }
 
-function priceGap(mine: Offer, theirs: Offer): number {
-  const base = Math.max(mine.unitPrice, 1);
-  return Math.abs(mine.unitPrice - theirs.unitPrice) / base;
+function openingValue(spec: TermSpec): TermValue {
+  if (isOrdered(spec.bound)) {
+    const n = openingOrdinal(spec);
+    if (n !== null) return fromOrdinal(n, spec.bound);
+  }
+  const b = spec.bound;
+  if (b.kind === "enum") return b.preference?.[0] ?? b.allowed[0];
+  if (b.kind === "set") return [...(b.required ?? [])];
+  if (b.kind === "boolean") return b.mustBe ?? spec.direction === "higher-better";
+  return "";
 }
 
 /** Deterministic concession. Used when no model is configured, or as a floor under one. */
 function heuristicCounter(
   mandate: Mandate,
-  myLast: Offer | undefined,
-  theirs: Offer,
+  myLast: Deal | undefined,
+  theirs: Deal,
   round: number,
-): { offer: Offer; rationale: string } {
-  const seller = mandate.role === "seller";
-  const base = myLast ?? openingOffer(mandate);
-  // Concede faster as the thread ages, so threads terminate.
-  const rate = Math.min(0.6, 0.35 + round * 0.05);
+): { deal: Deal; rationale: string } {
+  // Concede faster as the thread ages, so threads terminate. Per-term weighting
+  // is applied inside `concedeTerm`, which knows how each type should absorb it.
+  const rate = Math.min(0.7, 0.45 + round * 0.07);
+  const base = myLast ?? openingDeal(mandate);
+  const terms: Record<string, TermValue> = {};
 
-  let unitPrice = base.unitPrice;
-  if (seller) {
-    // Never move up; never cross the floor.
-    if (theirs.unitPrice < base.unitPrice) {
-      unitPrice = base.unitPrice - (base.unitPrice - theirs.unitPrice) * rate;
-    }
-    unitPrice = Math.max(unitPrice, mandate.floorUnitPrice ?? 0);
-  } else {
-    if (theirs.unitPrice > base.unitPrice) {
-      unitPrice = base.unitPrice + (theirs.unitPrice - base.unitPrice) * rate;
-    }
-    unitPrice = Math.min(unitPrice, mandate.ceilingUnitPrice ?? Infinity);
+  for (const spec of mandate.terms) {
+    const next = concedeTerm(base.terms[spec.key], theirs.terms[spec.key], spec, rate);
+    terms[spec.key] = next ?? openingValue(spec);
   }
 
-  const volume = Math.round(
-    Math.min(Math.max(base.volume + (theirs.volume - base.volume) * rate, mandate.minVolume), mandate.maxVolume),
-  );
-  const termMonths = Math.min(
-    Math.round(base.termMonths + (theirs.termMonths - base.termMonths) * rate),
-    mandate.maxTermMonths,
-  );
-  const paymentTermsDays = Math.min(
-    Math.round(base.paymentTermsDays + (theirs.paymentTermsDays - base.paymentTermsDays) * rate),
-    mandate.maxPaymentTermsDays,
-  );
-
-  const offer: Offer = {
-    sku: mandate.sku,
-    currency: mandate.currency,
-    unitPrice: round2(unitPrice),
-    volume,
-    termMonths,
-    incoterm: mandate.allowedIncoterms.includes(theirs.incoterm)
-      ? theirs.incoterm
-      : mandate.allowedIncoterms[0],
-    paymentTermsDays,
-    clauses: theirs.clauses.filter((c) => !mandate.forbiddenClauses.includes(c)),
-  };
-
-  const moved = round2(Math.abs(base.unitPrice - offer.unitPrice));
-  return { offer, rationale: concessionLine(mandate, offer, moved, round, seller) };
+  const deal: Deal = { subject: mandate.subject, terms };
+  return { deal, rationale: concessionLine(mandate, base, deal, round) };
 }
+
+/** The terms that actually moved, biggest first, for writing the rationale. */
+function movedTerms(mandate: Mandate, from: Deal, to: Deal) {
+  const moves: Array<{ spec: TermSpec; before: TermValue; after: TermValue; size: number }> = [];
+  for (const spec of mandate.terms) {
+    const before = from.terms[spec.key];
+    const after = to.terms[spec.key];
+    if (before === undefined || after === undefined) continue;
+    if (JSON.stringify(before) === JSON.stringify(after)) continue;
+    const size =
+      typeof before === "number" && typeof after === "number" && before !== 0
+        ? Math.abs(after - before) / Math.abs(before)
+        : 0.5;
+    moves.push({ spec, before, after, size: size * (0.5 + spec.weight) });
+  }
+  return moves.sort((a, b) => b.size - a.size);
+}
+
+const show = (value: TermValue, spec: TermSpec) =>
+  formatTermValue(value, typeOfBound(spec.bound), spec.bound.kind === "number" ? spec.bound.unit : undefined);
 
 /**
- * Wording for a deterministic concession. Varied by round so a fallback
- * transcript does not read as the same sentence three times — this text is on
- * screen, and repetition is what makes a demo look scripted.
+ * Wording for a deterministic concession, built from whichever terms moved.
+ * Varied by round because this text is on screen, and repetition is what makes
+ * a demo look scripted.
  */
-function concessionLine(
-  mandate: Mandate,
-  offer: Offer,
-  moved: number,
-  round: number,
-  seller: boolean,
-): string {
-  const c = mandate.currency;
-  if (!moved) {
-    return (
-      `Holding at ${c} ${offer.unitPrice}. I have room on ` +
-      `${seller ? "payment terms" : "volume"} rather than rate if that helps close it.`
-    );
+function concessionLine(mandate: Mandate, from: Deal, to: Deal, round: number): string {
+  const moves = movedTerms(mandate, from, to);
+
+  if (moves.length === 0) {
+    const tradeable = mandate.terms.filter((s) => s.weight < 0.5)[0];
+    return tradeable
+      ? `We are holding where we are on the headline terms, but there is room on ${tradeable.label.toLowerCase()} if that helps close it.`
+      : `We are at the edge of what we can do on these terms.`;
   }
 
-  const sellerLines = [
-    `We can come down ${c} ${moved} to ${c} ${offer.unitPrice} if you take ${offer.volume} units. ` +
-      `Committed volume is what makes the lane work at that rate.`,
-    `${c} ${offer.unitPrice} against ${offer.volume} units over ${offer.termMonths} months. ` +
-      `That is a real move on our side, not a rounding of the last number.`,
-    `Taking another ${c} ${moved} off, to ${c} ${offer.unitPrice}. ` +
-      `We are close to where this lane stops carrying at that volume.`,
-    `${c} ${offer.unitPrice}. That is the last meaningful step we have on rate — ` +
-      `beyond this we would be talking about term, not price.`,
+  const lead = moves[0];
+  const second = moves[1];
+  const leadText = `${lead.spec.label.toLowerCase()} to ${show(lead.after, lead.spec)}`;
+  const secondText = second ? `, and ${second.spec.label.toLowerCase()} to ${show(second.after, second.spec)}` : "";
+
+  const openers = [
+    `We can move ${leadText}${secondText}.`,
+    `${capitalise(leadText)}${secondText}. That is a real move on our side, not a rounding of the last number.`,
+    `Taking ${leadText}${secondText}. We are getting close to where this stops working for us.`,
+    `${capitalise(leadText)}${secondText} — that is the last meaningful step we have.`,
   ];
 
-  const buyerLines = [
-    `We can go to ${c} ${offer.unitPrice} for ${offer.volume} units. ` +
-      `The volume is firm, which should be worth something against the rate.`,
-    `${c} ${offer.unitPrice} over ${offer.termMonths} months. ` +
-      `We are moving ${c} ${moved} on the strength of the commitment behind it.`,
-    `Up ${c} ${moved} to ${c} ${offer.unitPrice}. ` +
-      `We would rather settle this than keep trading numbers.`,
-    `${c} ${offer.unitPrice} and ${offer.volume} units. ` +
-      `That is close to the end of what this route justifies for us.`,
+  const closers = [
+    "",
+    " The commitment behind it should be worth something against the rest.",
+    " We would rather settle this than keep trading numbers.",
+    " Beyond this we would be talking about scope, not terms.",
   ];
 
-  const lines = seller ? sellerLines : buyerLines;
-  return lines[Math.min(round, lines.length - 1)];
+  const i = Math.min(round, openers.length - 1);
+  return openers[i] + closers[i];
 }
+
+const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 // ---------------------------------------------------------------------------
 // Model-assisted moves
 // ---------------------------------------------------------------------------
 
-type ModelMove = { offer?: unknown; rationale?: string };
+type ModelMove = { terms?: unknown; rationale?: string };
 
 /**
  * Ask the model for a counter-offer. Returns null whenever the model is absent
@@ -421,59 +411,78 @@ type ModelMove = { offer?: unknown; rationale?: string };
 async function modelCounter(
   agent: LocalAgent,
   thread: Thread,
-  theirs: Offer,
-): Promise<{ offer: Offer; rationale: string } | null> {
+  theirs: Deal,
+): Promise<{ deal: Deal; rationale: string } | null> {
   const mandate = agent.mandate;
+  const schema = mandate.terms
+    .map((s) => `  "${s.key}": ${jsonHintFor(s)}   // ${s.label}`)
+    .join("\n");
+
   const result = await chatJSON<ModelMove>({
     system:
       `You are the autonomous commercial agent for ${agent.card.name} (${agent.card.domain}).\n\n` +
       `What the company does:\n${agent.card.purpose}\n\n` +
-      `Your mandate — these are hard limits, not preferences:\n${describeMandate(mandate)}\n\n` +
+      `${describeMandate(mandate)}\n\n` +
       `You are negotiating with another company's agent. Move toward a deal, but ` +
-      `concede gradually and justify every move commercially. Never restate your ` +
-      `internal limits to the other side.\n\n` +
-      `Reply with JSON only:\n` +
-      `{"offer":{"sku":string,"currency":string,"unitPrice":number,"volume":number,` +
-      `"termMonths":number,"incoterm":string,"paymentTermsDays":number,"clauses":string[]},` +
-      `"rationale":string}\n` +
+      `concede gradually and justify every move commercially.\n\n` +
+      `Reply with JSON only, in exactly this shape:\n` +
+      `{\n  "terms": {\n${schema}\n  },\n  "rationale": string\n}\n` +
       `"rationale" is one or two sentences addressed to the other agent.`,
     user:
       `Subject: ${thread.subject}\n\n` +
       `Transcript so far:\n${transcriptFor(thread)}\n\n` +
-      `Their current offer: ${summariseOffer(theirs)}\n` +
-      (theirs.clauses.length ? `Their clauses: ${theirs.clauses.join(", ")}\n` : "") +
-      `\nGive your counter-offer.`,
+      `Their current position: ${summariseDeal(theirs, mandate)}\n\n` +
+      `Give your counter-offer.`,
     temperature: 0.5,
+    maxTokens: 900,
   });
 
-  if (!result || !isWellFormedOffer(result.offer)) return null;
+  if (!result || !isWellFormedDeal({ subject: mandate.subject, terms: result.terms })) return null;
+
   return {
-    offer: result.offer,
+    deal: { subject: mandate.subject, terms: result.terms as Record<string, TermValue> },
     rationale:
       typeof result.rationale === "string" && result.rationale.trim()
         ? result.rationale.trim()
-        : `Countering at ${mandate.currency} ${result.offer.unitPrice}.`,
+        : "Here is where we can get to.",
   };
+}
+
+function jsonHintFor(spec: TermSpec): string {
+  const b = spec.bound;
+  switch (b.kind) {
+    case "number":
+      return "number";
+    case "date":
+      return '"YYYY-MM-DD"';
+    case "enum":
+      return b.allowed.map((a) => `"${a}"`).join(" | ");
+    case "set":
+      return "string[]";
+    case "boolean":
+      return "true | false";
+    case "text":
+      return "string";
+  }
 }
 
 /** Model-written prose for openings and acceptances. Null falls back to a template. */
 async function draftRationale(
   agent: LocalAgent,
   thread: Thread,
-  offer: Offer,
-  theirs: Offer | undefined,
+  deal: Deal,
   kind: "opening" | "accept",
 ): Promise<string | null> {
   const result = await chatJSON<{ rationale?: string }>({
     system:
       `You are the commercial agent for ${agent.card.name}. ${agent.card.purpose}\n` +
       `Write one or two sentences to the other company's agent. Be direct and ` +
-      `commercial. Never reveal your internal price limits.\n` +
+      `commercial. Never reveal your internal limits.\n` +
       `Reply with JSON only: {"rationale": string}`,
     user:
       kind === "opening"
-        ? `Open a negotiation on "${thread.subject}" with this offer: ${summariseOffer(offer)}.`
-        : `You are accepting these terms: ${summariseOffer(offer)}. Confirm briefly.`,
+        ? `Open a negotiation on "${thread.subject}" with these terms: ${summariseDeal(deal, agent.mandate)}.`
+        : `You are accepting these terms: ${summariseDeal(deal, agent.mandate)}. Confirm briefly.`,
     temperature: 0.6,
     maxTokens: 200,
   });
@@ -481,15 +490,19 @@ async function draftRationale(
   return typeof text === "string" && text.trim() ? text.trim() : null;
 }
 
-function openingRationale(agent: LocalAgent, offer: Offer): string {
-  const seller = agent.mandate.role === "seller";
-  return seller
-    ? `We have dedicated capacity on this lane. Opening at ${offer.currency} ` +
-        `${offer.unitPrice.toLocaleString()} per unit for ${offer.volume} units over ` +
-        `${offer.termMonths} months, ${offer.incoterm}.`
-    : `We are looking to commit volume on this lane. We can work with ` +
-        `${offer.volume} units over ${offer.termMonths} months at ${offer.currency} ` +
-        `${offer.unitPrice.toLocaleString()} per unit, ${offer.incoterm}.`;
+function openingRationale(agent: LocalAgent, deal: Deal): string {
+  const mandate = agent.mandate;
+  const ranked = [...mandate.terms].sort((a, b) => b.weight - a.weight);
+  const headline = ranked[0];
+  const second = ranked[1];
+
+  if (!headline) return "We are set up for exactly this kind of arrangement. Here is where we open.";
+
+  const lead = `${headline.label.toLowerCase()} at ${show(deal.terms[headline.key], headline)}`;
+  const support = second
+    ? ` against ${second.label.toLowerCase()} of ${show(deal.terms[second.key], second)}`
+    : "";
+  return `We are set up for exactly this kind of arrangement. Opening at ${lead}${support}.`;
 }
 
 function transcriptFor(thread: Thread): string {
@@ -498,8 +511,8 @@ function transcriptFor(thread: Thread): string {
     .slice(-8)
     .map((t) => {
       const name = getCard(t.envelope.from)?.name ?? t.envelope.from;
-      const offer = t.envelope.body.offer ? ` [${summariseOffer(t.envelope.body.offer)}]` : "";
-      return `${name} (${t.envelope.type})${offer}: ${t.envelope.body.rationale ?? t.envelope.body.reason ?? ""}`;
+      const deal = t.envelope.body.deal ? ` [${summariseDeal(t.envelope.body.deal)}]` : "";
+      return `${name} (${t.envelope.type})${deal}: ${t.envelope.body.rationale ?? t.envelope.body.reason ?? ""}`;
     })
     .join("\n");
 }
@@ -509,7 +522,7 @@ function transcriptFor(thread: Thread): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve a parked thread. Approving converts the escalated offer into a signed
+ * Resolve a parked thread. Approving converts the escalated deal into a signed
  * `accept` from the escalating agent — the human's decision is what makes it
  * binding, so it is recorded on the wire like any other move.
  */
@@ -528,23 +541,24 @@ export function resolveApproval(thread: Thread, approve: boolean, note?: string)
     type: approve ? "accept" : "reject",
     body: approve
       ? {
-          offer: pending.offer,
+          deal: pending.deal,
           rationale:
             note?.trim() ||
-            `Approved by ${agent.card.name}. Confirmed at ${summariseOffer(pending.offer)}, ` +
-              `total ${pending.offer.currency} ${totalValueOf(pending.offer).toLocaleString()}.`,
+            `Approved by ${agent.card.name}. Confirmed on ${summariseDeal(pending.deal, agent.mandate)}.`,
         }
       : {
-          reason: note?.trim() || "Declined by a human reviewer at " + agent.card.name + ".",
+          reason: note?.trim() || `Declined by a human reviewer at ${agent.card.name}.`,
           rationale: "We are not proceeding on these terms.",
         },
     privateKey: agent.privateKey,
   });
 
-  const turn: TurnRecord = { envelope, verdict: pending.verdict };
-  thread.turns.push(turn);
+  thread.turns.push({ envelope, verdict: pending.verdict });
   thread.pendingApproval = undefined;
   thread.status = approve ? "accepted" : "rejected";
-  if (approve) thread.settledOffer = pending.offer;
+  if (approve) thread.settledDeal = pending.deal;
   return putThread(thread);
 }
+
+/** Re-exported so callers do not need to reach into mandate.ts for one helper. */
+export { specFor };

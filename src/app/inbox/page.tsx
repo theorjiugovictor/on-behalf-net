@@ -10,11 +10,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { OfferTerms } from "@/components/ui";
-import type { AgentCard, Thread } from "@/lib/types";
+import { DealTerms } from "@/components/ui";
+import type { AgentCard, PublicTermSpec, Thread } from "@/lib/types";
 
 type Row = { id: string; subject: string; status: string; a: string; b: string };
-type Pending = { thread: Thread; participants: Record<string, AgentCard | null> };
+type Pending = {
+  thread: Thread;
+  participants: Record<string, AgentCard | null>;
+  terms: Record<string, PublicTermSpec>;
+};
 
 export default function InboxPage() {
   const [threads, setThreads] = useState<Pending[]>([]);
@@ -78,7 +82,7 @@ export default function InboxPage() {
           </div>
         ) : (
           <div className="stack">
-            {threads.map(({ thread: t, participants }) => {
+            {threads.map(({ thread: t, participants, terms }) => {
               const p = t.pendingApproval!;
               const escalatedBy = participants[p.agentId]?.name ?? p.agentId;
               return (
@@ -91,11 +95,11 @@ export default function InboxPage() {
 
                   <p style={{ margin: "0 0 4px", color: "var(--text)" }}>{p.reason}</p>
                   <p className="muted" style={{ margin: 0 }}>
-                    Escalated by {escalatedBy}&apos;s agent · total {p.offer.currency}{" "}
-                    {p.verdict.totalValue.toLocaleString()}
+                    Escalated by {escalatedBy}&apos;s agent · these terms score{" "}
+                    {Math.round(p.verdict.utility * 100)} against its own mandate
                   </p>
 
-                  <OfferTerms offer={p.offer} />
+                  <DealTerms deal={p.deal} terms={terms} />
 
                   <div style={{ marginTop: 15 }}>
                     <input

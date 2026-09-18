@@ -1,204 +1,342 @@
 /**
  * The mandate policy engine.
  *
- * This is deliberately a pure, model-free module. Every commitment an agent
- * makes passes through `evaluateOffer` before it is signed, so the worst a
- * mis-steered model can do is propose something that gets rejected here.
+ * Deliberately a pure, model-free module. Every commitment an agent makes
+ * passes through `evaluateDeal` before it is signed, so the worst a mis-steered
+ * model can do is propose something that gets rejected here.
  *
  * `clampToMandate` exists so that a near-miss becomes a legal counter-offer
  * instead of a dead thread — the model's intent is preserved, its arithmetic is
  * overruled.
+ *
+ * Nothing in this file knows what a price is. It knows terms, bounds and
+ * directions, which is what lets the same engine referee a freight contract, a
+ * recruiting placement and a sponsorship without changing.
  */
 
-import type { Mandate, Offer, PolicyVerdict, Violation } from "./types";
+import {
+  checkTerm,
+  clampTerm,
+  fmtNum,
+  formatTermValue,
+  isOrdered,
+  limitOrdinal,
+  openingOrdinal,
+  fromOrdinal,
+  scoreTerm,
+  typeOfBound,
+} from "./terms";
+import type {
+  ApprovalRule,
+  Deal,
+  Mandate,
+  PolicyVerdict,
+  TermSpec,
+  TermValue,
+  Violation,
+} from "./types";
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
+export const specFor = (mandate: Mandate, key: string): TermSpec | undefined =>
+  mandate.terms.find((t) => t.key === key);
 
-export function totalValueOf(offer: Offer): number {
-  return round2(offer.unitPrice * offer.volume);
-}
+// ---------------------------------------------------------------------------
+// Evaluation
+// ---------------------------------------------------------------------------
 
-export function evaluateOffer(offer: Offer, mandate: Mandate): PolicyVerdict {
+export function evaluateDeal(deal: Deal, mandate: Mandate): PolicyVerdict {
   const violations: Violation[] = [];
-  const totalValue = totalValueOf(offer);
 
-  if (offer.sku !== mandate.sku) {
+  if (deal.subject !== mandate.subject) {
     violations.push({
-      code: "sku-mismatch",
-      field: "sku",
-      message: `Mandate covers "${mandate.sku}", offer is for "${offer.sku}".`,
-      permitted: mandate.sku,
+      code: "subject-mismatch",
+      term: "subject",
+      message: `This mandate covers "${mandate.subject}", the deal is for "${deal.subject}".`,
+      permitted: mandate.subject,
     });
   }
 
-  if (offer.currency !== mandate.currency) {
-    violations.push({
-      code: "currency-mismatch",
-      field: "currency",
-      message: `Mandate is denominated in ${mandate.currency}, offer in ${offer.currency}.`,
-      permitted: mandate.currency,
-    });
-  }
-
-  if (mandate.role === "seller" && mandate.floorUnitPrice !== undefined) {
-    if (offer.unitPrice < mandate.floorUnitPrice) {
+  // A term with no spec is a term this agent has no authority over. Agreeing to
+  // one would be committing the company to something nobody mandated.
+  for (const key of Object.keys(deal.terms)) {
+    if (!specFor(mandate, key)) {
       violations.push({
-        code: "below-price-floor",
-        field: "unitPrice",
-        message: `${offer.unitPrice} is below the ${mandate.currency} ${mandate.floorUnitPrice} floor.`,
-        permitted: mandate.floorUnitPrice,
+        code: "unmandated-term",
+        term: key,
+        message: `"${key}" is not a term this agent is mandated to agree.`,
       });
     }
   }
 
-  if (mandate.role === "buyer" && mandate.ceilingUnitPrice !== undefined) {
-    if (offer.unitPrice > mandate.ceilingUnitPrice) {
+  for (const spec of mandate.terms) {
+    const value = deal.terms[spec.key];
+    if (value === undefined) {
       violations.push({
-        code: "above-price-ceiling",
-        field: "unitPrice",
-        message: `${offer.unitPrice} is above the ${mandate.currency} ${mandate.ceilingUnitPrice} ceiling.`,
-        permitted: mandate.ceilingUnitPrice,
+        code: "missing-term",
+        term: spec.key,
+        message: `${spec.label} has not been stated.`,
       });
+      continue;
     }
+    const violation = checkTerm(value, spec);
+    if (violation) violations.push(violation);
   }
 
-  if (offer.volume < mandate.minVolume || offer.volume > mandate.maxVolume) {
-    violations.push({
-      code: "volume-out-of-range",
-      field: "volume",
-      message: `${offer.volume} units is outside the permitted ${mandate.minVolume}–${mandate.maxVolume}.`,
-      permitted: Math.min(Math.max(offer.volume, mandate.minVolume), mandate.maxVolume),
-    });
-  }
-
-  if (offer.termMonths > mandate.maxTermMonths) {
-    violations.push({
-      code: "term-too-long",
-      field: "termMonths",
-      message: `${offer.termMonths} months exceeds the ${mandate.maxTermMonths}-month limit.`,
-      permitted: mandate.maxTermMonths,
-    });
-  }
-
-  if (totalValue > mandate.maxTotalValue) {
-    violations.push({
-      code: "total-value-exceeded",
-      field: "unitPrice",
-      message: `Total exposure ${mandate.currency} ${totalValue} exceeds the ${mandate.maxTotalValue} cap.`,
-      permitted: mandate.maxTotalValue,
-    });
-  }
-
-  if (!mandate.allowedIncoterms.includes(offer.incoterm)) {
-    violations.push({
-      code: "incoterm-not-allowed",
-      field: "incoterm",
-      message: `${offer.incoterm} is not permitted. Allowed: ${mandate.allowedIncoterms.join(", ")}.`,
-      permitted: mandate.allowedIncoterms[0],
-    });
-  }
-
-  if (offer.paymentTermsDays > mandate.maxPaymentTermsDays) {
-    violations.push({
-      code: "payment-terms-too-long",
-      field: "paymentTermsDays",
-      message: `Net ${offer.paymentTermsDays} exceeds the net ${mandate.maxPaymentTermsDays} limit.`,
-      permitted: mandate.maxPaymentTermsDays,
-    });
-  }
-
-  for (const clause of offer.clauses) {
-    if (mandate.forbiddenClauses.includes(clause)) {
-      violations.push({
-        code: "forbidden-clause",
-        field: "clauses",
-        message: `"${clause}" is expressly outside this agent's authority.`,
-      });
-    }
-  }
+  const utility = utilityOf(deal, mandate);
 
   if (violations.length > 0) {
-    return { decision: "violates-mandate", violations, totalValue };
+    return { decision: "violates-mandate", violations, utility };
   }
 
-  if (totalValue >= mandate.autoApproveBelowValue) {
-    return {
-      decision: "needs-approval",
-      violations: [],
-      totalValue,
-      approvalReason:
-        `Total value ${mandate.currency} ${totalValue.toLocaleString()} is at or above the ` +
-        `${mandate.currency} ${mandate.autoApproveBelowValue.toLocaleString()} threshold for human sign-off.`,
-    };
+  const approval = approvalTriggeredBy(deal, mandate);
+  if (approval) {
+    return { decision: "needs-approval", violations: [], utility, approvalReason: approval };
   }
 
-  return { decision: "within-mandate", violations: [], totalValue };
+  return { decision: "within-mandate", violations: [], utility };
 }
 
 /**
- * Pull an offer to the nearest point inside the mandate. Returns null when the
- * offer cannot be rescued — a mismatched SKU or a forbidden clause is a refusal,
- * not a rounding error.
+ * How good this deal is for the party holding the mandate, 0–1, as a
+ * weighted mean over the terms that can actually be traded along a range.
  */
-export function clampToMandate(offer: Offer, mandate: Mandate): Offer | null {
-  if (offer.sku !== mandate.sku) return null;
-
-  const clauses = offer.clauses.filter((c) => !mandate.forbiddenClauses.includes(c));
-
-  let unitPrice = offer.unitPrice;
-  if (mandate.role === "seller" && mandate.floorUnitPrice !== undefined) {
-    unitPrice = Math.max(unitPrice, mandate.floorUnitPrice);
+export function utilityOf(deal: Deal, mandate: Mandate): number {
+  let total = 0;
+  let weight = 0;
+  for (const spec of mandate.terms) {
+    const value = deal.terms[spec.key];
+    if (value === undefined) continue;
+    const w = Math.max(spec.weight, 0);
+    if (w === 0) continue;
+    total += scoreTerm(value, spec) * w;
+    weight += w;
   }
-  if (mandate.role === "buyer" && mandate.ceilingUnitPrice !== undefined) {
-    unitPrice = Math.min(unitPrice, mandate.ceilingUnitPrice);
+  return weight === 0 ? 0.5 : Math.round((total / weight) * 1000) / 1000;
+}
+
+// ---------------------------------------------------------------------------
+// Approval
+// ---------------------------------------------------------------------------
+
+/** Multiply named numeric terms. This is how "total contract value" stays generic. */
+export function productOfTerms(deal: Deal, keys: string[]): number | null {
+  let product = 1;
+  for (const key of keys) {
+    const value = deal.terms[key];
+    if (typeof value !== "number" || !Number.isFinite(value)) return null;
+    product *= value;
   }
+  return Math.round(product * 100) / 100;
+}
 
-  const volume = Math.min(Math.max(offer.volume, mandate.minVolume), mandate.maxVolume);
+/** The first approval rule this deal trips, rendered as prose, or null. */
+export function approvalTriggeredBy(deal: Deal, mandate: Mandate): string | null {
+  for (const rule of mandate.approval) {
+    const reason = ruleTriggered(deal, mandate, rule);
+    if (reason) return reason;
+  }
+  return null;
+}
 
-  const clamped: Offer = {
-    sku: mandate.sku,
-    currency: mandate.currency,
-    unitPrice: round2(unitPrice),
-    volume,
-    termMonths: Math.min(offer.termMonths, mandate.maxTermMonths),
-    incoterm: mandate.allowedIncoterms.includes(offer.incoterm)
-      ? offer.incoterm
-      : mandate.allowedIncoterms[0],
-    paymentTermsDays: Math.min(offer.paymentTermsDays, mandate.maxPaymentTermsDays),
-    clauses,
+function ruleTriggered(deal: Deal, mandate: Mandate, rule: ApprovalRule): string | null {
+  const labelOf = (key: string) => specFor(mandate, key)?.label ?? key;
+  const unitOf = (key: string) => {
+    const b = specFor(mandate, key)?.bound;
+    return b?.kind === "number" ? b.unit : undefined;
   };
 
-  // Exposure is the one bound we cannot fix by moving a single field: shrink
-  // volume first, since price is usually the negotiated term.
-  if (totalValueOf(clamped) > mandate.maxTotalValue) {
-    const affordable = Math.floor(mandate.maxTotalValue / clamped.unitPrice);
-    if (affordable < mandate.minVolume) return null;
-    clamped.volume = Math.min(affordable, mandate.maxVolume);
+  switch (rule.kind) {
+    case "always":
+      return rule.reason ?? "This agent may negotiate but may not close without a human.";
+
+    case "term-at-or-above": {
+      const v = deal.terms[rule.term];
+      if (typeof v !== "number" || v < rule.value) return null;
+      return (
+        rule.reason ??
+        `${labelOf(rule.term)} of ${fmtNum(v, unitOf(rule.term))} is at or above the ` +
+          `${fmtNum(rule.value, unitOf(rule.term))} threshold for human sign-off.`
+      );
+    }
+
+    case "term-at-or-below": {
+      const v = deal.terms[rule.term];
+      if (typeof v !== "number" || v > rule.value) return null;
+      return (
+        rule.reason ??
+        `${labelOf(rule.term)} of ${fmtNum(v, unitOf(rule.term))} is at or below the ` +
+          `${fmtNum(rule.value, unitOf(rule.term))} threshold for human sign-off.`
+      );
+    }
+
+    case "term-equals": {
+      const v = deal.terms[rule.term];
+      if (v !== rule.value) return null;
+      const shown = typeof rule.value === "boolean" ? (rule.value ? "yes" : "no") : `"${rule.value}"`;
+      return rule.reason ?? `${labelOf(rule.term)} of ${shown} requires human sign-off.`;
+    }
+
+    case "product-at-or-above": {
+      const total = productOfTerms(deal, rule.terms);
+      if (total === null || total < rule.value) return null;
+      const unit = rule.unit ?? unitOf(rule.terms[0]);
+      return (
+        rule.reason ??
+        `Total of ${fmtNum(total, unit)} (${rule.terms.map(labelOf).join(" × ")}) is at or above ` +
+          `the ${fmtNum(rule.value, unit)} threshold for human sign-off.`
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Clamping
+// ---------------------------------------------------------------------------
+
+/**
+ * Pull a deal to the nearest point inside the mandate. Returns null when it
+ * cannot be rescued: a different subject, or a term whose value is not even the
+ * right shape, is a refusal rather than a rounding error.
+ *
+ * Terms the mandate says nothing about are dropped rather than agreed — the
+ * caller surfaces that, so the counterparty is told their ask went unanswered
+ * instead of silently ignored.
+ */
+export function clampToMandate(deal: Deal, mandate: Mandate): Deal | null {
+  if (deal.subject !== mandate.subject) return null;
+
+  const terms: Record<string, TermValue> = {};
+
+  for (const spec of mandate.terms) {
+    const proposed = deal.terms[spec.key];
+
+    if (proposed === undefined) {
+      // Nothing was proposed, so state our opening position for it.
+      const opening = openingOrdinal(spec);
+      if (opening !== null && isOrdered(spec.bound)) {
+        terms[spec.key] = fromOrdinal(opening, spec.bound);
+        continue;
+      }
+      const fallback = defaultFor(spec);
+      if (fallback === null) return null;
+      terms[spec.key] = fallback;
+      continue;
+    }
+
+    const clamped = clampTerm(proposed, spec);
+    if (clamped === null) return null;
+    terms[spec.key] = clamped;
   }
 
-  return evaluateOffer(clamped, mandate).decision === "violates-mandate" ? null : clamped;
+  const result: Deal = { subject: mandate.subject, terms };
+  return evaluateDeal(result, mandate).decision === "violates-mandate" ? null : result;
 }
+
+/** A safe starting value for an unordered term with nothing proposed. */
+function defaultFor(spec: TermSpec): TermValue | null {
+  const b = spec.bound;
+  if (b.kind === "enum") return b.preference?.[0] ?? b.allowed[0] ?? null;
+  if (b.kind === "set") return [...(b.required ?? [])];
+  if (b.kind === "boolean") return b.mustBe ?? false;
+  if (b.kind === "text") return "";
+  return null;
+}
+
+/** Terms the counterparty asked for that this mandate has no authority over. */
+export function unmandatedTerms(deal: Deal, mandate: Mandate): string[] {
+  return Object.keys(deal.terms).filter((k) => !specFor(mandate, k));
+}
+
+// ---------------------------------------------------------------------------
+// Description
+// ---------------------------------------------------------------------------
 
 /** Compact, model-readable restatement of the bounds. Used in the system prompt. */
 export function describeMandate(mandate: Mandate): string {
-  const lines = [
-    `Role: ${mandate.role}`,
-    `Product: ${mandate.sku}, priced in ${mandate.currency}`,
-    mandate.role === "seller"
-      ? `Never quote below ${mandate.currency} ${mandate.floorUnitPrice} per unit.`
-      : `Never agree above ${mandate.currency} ${mandate.ceilingUnitPrice} per unit.`,
-    `Volume must be between ${mandate.minVolume} and ${mandate.maxVolume} units.`,
-    `Contract term must not exceed ${mandate.maxTermMonths} months.`,
-    `Total contract value must not exceed ${mandate.currency} ${mandate.maxTotalValue}.`,
-    `Permitted incoterms: ${mandate.allowedIncoterms.join(", ")}.`,
-    `Payment terms must not exceed net ${mandate.maxPaymentTermsDays} days.`,
-  ];
-  if (mandate.forbiddenClauses.length > 0) {
-    lines.push(`You may never agree to any of: ${mandate.forbiddenClauses.join(", ")}.`);
+  const lines = [`You are the ${mandate.role} side of "${mandate.subject}".`, "", "Your limits:"];
+
+  for (const spec of mandate.terms) {
+    lines.push(`- ${describeSpec(spec)}`);
   }
+
+  if (mandate.approval.length) {
+    lines.push("", "You may signal agreement but must not treat a deal as final when:");
+    for (const rule of mandate.approval) lines.push(`- ${describeRule(mandate, rule)}`);
+  }
+
   lines.push(
-    `Deals at or above ${mandate.currency} ${mandate.autoApproveBelowValue} require human sign-off; ` +
-      `you may signal agreement but must not treat them as final.`,
+    "",
+    "These are hard limits, not preferences. Never state them to the other side.",
   );
   return lines.join("\n");
+}
+
+function describeSpec(spec: TermSpec): string {
+  const b = spec.bound;
+  const head = `${spec.label} ("${spec.key}")`;
+  const importance = spec.weight >= 0.7 ? " This one matters most." : "";
+
+  switch (b.kind) {
+    case "number": {
+      const parts: string[] = [];
+      if (b.min !== undefined) parts.push(`never below ${fmtNum(b.min, b.unit)}`);
+      if (b.max !== undefined) parts.push(`never above ${fmtNum(b.max, b.unit)}`);
+      const want = spec.direction === "higher-better" ? "higher is better for you" : spec.direction === "lower-better" ? "lower is better for you" : "no preference";
+      return `${head}: ${parts.join(", ") || "unbounded"}; ${want}.${importance}`;
+    }
+    case "date": {
+      const parts: string[] = [];
+      if (b.notBefore) parts.push(`not before ${b.notBefore}`);
+      if (b.notAfter) parts.push(`not after ${b.notAfter}`);
+      const want = spec.direction === "lower-better" ? "earlier is better for you" : spec.direction === "higher-better" ? "later is better for you" : "no preference";
+      return `${head}: ${parts.join(", ") || "any date"}; ${want}.${importance}`;
+    }
+    case "enum":
+      return `${head}: one of ${b.allowed.join(", ")}${b.preference?.length ? `; you prefer ${b.preference[0]}` : ""}.${importance}`;
+    case "set": {
+      const parts: string[] = [];
+      if (b.required?.length) parts.push(`must include ${b.required.join(", ")}`);
+      if (b.forbidden?.length) parts.push(`never agree to ${b.forbidden.join(", ")}`);
+      if (b.maxItems !== undefined) parts.push(`at most ${b.maxItems} items`);
+      return `${head}: ${parts.join("; ") || "open"}.${importance}`;
+    }
+    case "boolean":
+      return `${head}: ${b.mustBe === undefined ? `you prefer ${spec.direction === "higher-better" ? "yes" : "no"}` : `must be ${b.mustBe ? "yes" : "no"}`}.${importance}`;
+    case "text":
+      return `${head}: free text${b.maxLength ? `, at most ${b.maxLength} characters` : ""}.`;
+  }
+}
+
+function describeRule(mandate: Mandate, rule: ApprovalRule): string {
+  const labelOf = (k: string) => specFor(mandate, k)?.label ?? k;
+  switch (rule.kind) {
+    case "always":
+      return "always — you may not close anything without a human.";
+    case "term-at-or-above":
+      return `${labelOf(rule.term)} reaches ${rule.value}.`;
+    case "term-at-or-below":
+      return `${labelOf(rule.term)} falls to ${rule.value}.`;
+    case "term-equals":
+      return `${labelOf(rule.term)} is ${String(rule.value)}.`;
+    case "product-at-or-above":
+      return `${rule.terms.map(labelOf).join(" × ")} reaches ${rule.value}.`;
+  }
+}
+
+/** One-line rendering of a deal, for logs, prompts and status strips. */
+export function summariseDeal(deal: Deal, mandate?: Mandate): string {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(deal.terms)) {
+    const spec = mandate ? specFor(mandate, key) : undefined;
+    const type = spec ? typeOfBound(spec.bound) : inferType(value);
+    const unit = spec?.bound.kind === "number" ? spec.bound.unit : undefined;
+    parts.push(`${spec?.label ?? key} ${formatTermValue(value, type, unit)}`);
+  }
+  return parts.join(", ");
+}
+
+function inferType(value: TermValue) {
+  if (typeof value === "number") return "number" as const;
+  if (typeof value === "boolean") return "boolean" as const;
+  if (Array.isArray(value)) return "set" as const;
+  return "text" as const;
 }

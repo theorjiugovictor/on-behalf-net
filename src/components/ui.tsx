@@ -1,43 +1,49 @@
-import type { AgentCard, Offer, PolicyVerdict, TurnRecord } from "@/lib/types";
+import { formatTermValue } from "@/lib/terms";
+import type {
+  AgentCard,
+  Deal,
+  PolicyVerdict,
+  PublicTermSpec,
+  TurnRecord,
+} from "@/lib/types";
 
-const money = (n: number, currency: string) =>
-  `${currency} ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+export type TermDict = Record<string, PublicTermSpec>;
 
-export function OfferTerms({ offer }: { offer: Offer }) {
-  const total = offer.unitPrice * offer.volume;
+/**
+ * Render whatever terms a deal happens to carry. The dictionary supplies labels
+ * and units; nothing here is specialised to an industry, which is what lets the
+ * same floor show a freight rate and a sponsorship exclusivity flag.
+ */
+export function DealTerms({ deal, terms }: { deal: Deal; terms?: TermDict }) {
+  const entries = Object.entries(deal.terms);
+  if (entries.length === 0) return null;
+
   return (
     <div className="terms">
-      <span className="term">
-        rate <b>{money(offer.unitPrice, offer.currency)}</b>
-      </span>
-      <span className="term">
-        volume <b>{offer.volume.toLocaleString()}</b>
-      </span>
-      <span className="term">
-        term <b>{offer.termMonths}mo</b>
-      </span>
-      <span className="term">
-        incoterm <b>{offer.incoterm}</b>
-      </span>
-      <span className="term">
-        payment <b>net {offer.paymentTermsDays}</b>
-      </span>
-      <span className="term">
-        total <b>{money(total, offer.currency)}</b>
-      </span>
-      {offer.clauses.map((c) => (
-        <span className="term" key={c}>
-          clause <b>{c}</b>
-        </span>
-      ))}
+      {entries.map(([key, value]) => {
+        const spec = terms?.[key];
+        return (
+          <span className="term" key={key}>
+            {spec?.label ?? key.replace(/[-_]/g, " ")}{" "}
+            <b>{formatTermValue(value, spec?.type ?? inferType(value), spec?.unit)}</b>
+          </span>
+        );
+      })}
     </div>
   );
 }
 
+function inferType(value: unknown): PublicTermSpec["type"] {
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  if (Array.isArray(value)) return "set";
+  return "text";
+}
+
 /**
  * A proposal is not a commitment, so "needs human sign-off" is only meaningful
- * on the binding moves. On a counter, an offer with no violations is simply
- * within mandate, whatever its total value.
+ * on the binding moves. On a counter, a deal with no violations is simply
+ * within mandate, whatever it would eventually be worth.
  */
 export function VerdictBadge({
   verdict,
@@ -70,10 +76,12 @@ export function Turn({
   turn,
   side,
   name,
+  terms,
 }: {
   turn: TurnRecord;
   side: "a" | "b";
   name: string;
+  terms?: TermDict;
 }) {
   const { envelope, verdict, clamped, foreign } = turn;
   const terminal = ["accept", "reject", "escalate"].includes(envelope.type);
@@ -86,6 +94,11 @@ export function Turn({
         <span className={`badge ${TYPE_BADGE[envelope.type] ?? ""}`}>{envelope.type}</span>
         {foreign && <span className="badge badge-accent">external agent</span>}
         <VerdictBadge verdict={verdict} messageType={envelope.type} />
+        {typeof verdict?.utility === "number" && (
+          <span className="badge" title="How good these terms are for this agent, against its own mandate">
+            fit {Math.round(verdict.utility * 100)}
+          </span>
+        )}
         <time className="turn-time">
           {new Date(envelope.ts).toLocaleTimeString(undefined, {
             hour: "2-digit",
@@ -96,14 +109,13 @@ export function Turn({
       </div>
 
       {text && <p className="turn-body">{text}</p>}
-      {envelope.body.offer && <OfferTerms offer={envelope.body.offer} />}
+      {envelope.body.deal && <DealTerms deal={envelope.body.deal} terms={terms} />}
 
       {clamped && (
         <div className="policy-note" data-kind="clamped">
-          <strong>Mandate corrected this move.</strong> The model proposed{" "}
-          {money(clamped.from.unitPrice, clamped.from.currency)} × {clamped.from.volume}. Policy
-          rejected it — {clamped.violations.map((v) => v.message).join(" ")} — and pulled the offer
-          back inside the mandate before it was signed.
+          <strong>Mandate corrected this move.</strong> Policy rejected the first draft —{" "}
+          {clamped.violations.map((v) => v.message).join(" ")} — and pulled the terms back inside
+          the mandate before anything was signed.
         </div>
       )}
 
@@ -123,15 +135,13 @@ export function AgentPanel({ card, role }: { card: AgentCard | null; role?: stri
     <div className="card">
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
         <span className="agent-name">{card.name}</span>
-        {role && <span className="badge">{role}</span>}
+        {(role ?? card.negotiates?.role) && (
+          <span className="badge">{role ?? card.negotiates?.role}</span>
+        )}
       </div>
       <div className="agent-domain">{card.domain}</div>
       <p className="agent-purpose">{card.purpose}</p>
       <div className="key">key {card.publicKey.slice(0, 22)}…</div>
     </div>
   );
-}
-
-export function StatusDot({ on }: { on: boolean }) {
-  return <span className={`dot ${on ? "dot-ok" : "dot-off"}`} />;
 }

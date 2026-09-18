@@ -4,10 +4,13 @@
  *
  *   node examples/probe-boundary.mjs [baseUrl] [targetAgentId]
  *
- * An open protocol is only worth something if lying to it fails. This lies to
- * it ten different ways and prints what happens — forged signatures, tampered
- * bodies, unknown senders, offers outside the mandate, clauses the agent may
- * never agree to.
+ * An open protocol is only worth something if lying to it fails. This lies to it
+ * eleven different ways and prints what happens — forged signatures, tampered
+ * bodies, unknown senders, terms far outside the mandate, clauses the agent may
+ * never agree to, and terms nobody gave it authority over at all.
+ *
+ * It reads the target's term vocabulary off its card, so it probes whatever that
+ * agent trades rather than assuming an industry.
  *
  * Useful to run in front of anyone who asks "but what stops me from just…".
  */
@@ -16,8 +19,18 @@ import { createPrivateKey, generateKeyPairSync, randomUUID, sign as edSign } fro
 
 const BASE = (process.argv[2] ?? "http://localhost:3000").replace(/\/$/, "");
 const TARGET = process.argv[3] ?? "obn:meridian-coldchain";
-const PROTOCOL = "obn/0.1";
+const PROTOCOL = "obn/0.2";
 const PKCS8_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
+
+/** Clause names no well-governed agent should ever sign up to. */
+const DANGEROUS = [
+  "exclusivity",
+  "unlimited-liability",
+  "auto-renewal",
+  "unlimited-replacements",
+  "fee-on-failure",
+  "stadium-naming",
+];
 
 function mintKeys() {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -55,25 +68,40 @@ const keys = mintKeys();
 
 const CARD = {
   protocol: PROTOCOL,
-  id: "obn:probe",
+  // A fresh identity per run. The node learns a stranger's key on first contact
+  // and holds it, so reusing an id under a new key would (correctly) be refused
+  // as impersonation — which is a different finding than the ones being probed.
+  id: `obn:probe-${randomUUID().slice(0, 8)}`,
   name: "Boundary Probe",
   domain: "probe.example",
   purpose: "Tests what this node refuses.",
   publicKey: keys.publicKey,
   endpoint: "https://probe.example/inbox",
-  capabilities: ["buy", "negotiate"],
+  capabilities: ["negotiate"],
 };
 
-const OFFER = {
-  sku: "reefer-lane-lagos-accra",
-  currency: "USD",
-  unitPrice: 900,
-  volume: 100,
-  termMonths: 6,
-  incoterm: "DAP",
-  paymentTermsDays: 30,
-  clauses: [],
-};
+// Filled in from the target's card, so the probe is not tied to one industry.
+let SUBJECT = "unknown";
+let DEAL = { subject: SUBJECT, terms: {} };
+let NUMBER_KEYS = [];
+let SET_KEY = null;
+
+function plausible(spec) {
+  switch (spec.type) {
+    case "number":
+      return 100;
+    case "date":
+      return "2027-01-15";
+    case "boolean":
+      return true;
+    case "set":
+      return [];
+    case "enum":
+      return spec.options?.[0] ?? "";
+    default:
+      return "";
+  }
+}
 
 const envelope = (over = {}) => ({
   protocol: PROTOCOL,
@@ -83,7 +111,7 @@ const envelope = (over = {}) => ({
   to: TARGET,
   type: "propose",
   ts: new Date().toISOString(),
-  body: { offer: OFFER, card: CARD },
+  body: { deal: DEAL, card: CARD },
   ...over,
 });
 
@@ -99,67 +127,111 @@ async function post(env) {
 let passed = 0;
 let total = 0;
 
-function expect(label, status, wanted, detail) {
+function expect(label, ok, detail, status = "") {
   total += 1;
-  const ok = wanted.includes(status);
   if (ok) passed += 1;
   console.log(`  ${ok ? "pass" : "FAIL"}  ${String(status).padEnd(4)} ${label}`);
   if (detail) console.log(`              ${detail}`);
 }
 
+const expectStatus = (label, status, wanted, detail) =>
+  expect(label, wanted.includes(status), detail, status);
+
 async function main() {
-  console.log(`\n  Probing ${BASE} as an untrusted stranger\n`);
+  const cardRes = await fetch(`${BASE}/api/agents/${encodeURIComponent(TARGET)}/card`);
+  if (!cardRes.ok) throw new Error(`Could not fetch card for ${TARGET}: HTTP ${cardRes.status}`);
+  const theirCard = await cardRes.json();
+
+  const vocab = theirCard.negotiates?.terms ?? [];
+  SUBJECT = theirCard.negotiates?.subject ?? "unknown";
+  DEAL = { subject: SUBJECT, terms: Object.fromEntries(vocab.map((t) => [t.key, plausible(t)])) };
+  NUMBER_KEYS = vocab.filter((t) => t.type === "number").map((t) => t.key);
+  SET_KEY = vocab.find((t) => t.type === "set")?.key ?? null;
+
+  console.log(`\n  Probing ${BASE} as an untrusted stranger`);
+  console.log(`  Target: ${theirCard.name}, negotiating "${SUBJECT}"\n`);
 
   // --- identity and integrity ---
-  const ok = await post(sign(envelope(), keys.privateKey));
-  expect("a correctly signed stranger is admitted", ok.status, [200], `thread ${ok.json.threadId}`);
+
+  const r1 = await post(sign(envelope(), keys.privateKey));
+  expectStatus("a correctly signed stranger is admitted", r1.status, [200], `thread ${r1.json.threadId}`);
 
   const forged = sign(envelope(), keys.privateKey);
   forged.sig = Buffer.from("x".repeat(64)).toString("base64url");
   const r2 = await post(forged);
-  expect("forged signature", r2.status, [401], r2.json.error);
+  expectStatus("forged signature", r2.status, [401], r2.json.error);
 
   const tampered = sign(envelope(), keys.privateKey);
-  tampered.body.offer = { ...OFFER, unitPrice: 1 };
+  tampered.body.deal = {
+    ...DEAL,
+    terms: { ...DEAL.terms, ...(NUMBER_KEYS[0] ? { [NUMBER_KEYS[0]]: 1 } : {}) },
+  };
   const r3 = await post(tampered);
-  expect("price changed after signing", r3.status, [401], r3.json.error);
+  expectStatus("a term changed after signing", r3.status, [401], r3.json.error);
 
   const impostor = mintKeys();
   const r4 = await post(sign(envelope(), impostor.privateKey));
-  expect("signed with a key the card does not match", r4.status, [401], r4.json.error);
+  expectStatus("signed with a key the card does not match", r4.status, [401], r4.json.error);
 
-  const r5 = await post(sign(envelope({ from: "obn:ghost", body: { offer: OFFER } }), keys.privateKey));
-  expect("unknown sender presenting no card", r5.status, [404], r5.json.error);
+  const r5 = await post(sign(envelope({ from: "obn:ghost", body: { deal: DEAL } }), keys.privateKey));
+  expectStatus("unknown sender presenting no card", r5.status, [404], r5.json.error);
 
-  // A card whose id disagrees with the sender is never adopted, so this lands
-  // as an unknown sender rather than confirming anything about the card.
+  // A card whose id disagrees with the sender is never adopted, so this lands as
+  // an unknown sender rather than confirming anything about the card.
   const r6 = await post(sign(envelope({ from: "obn:someone-else" }), keys.privateKey));
-  expect("card id disagrees with the sender", r6.status, [400, 404], r6.json.error);
+  expectStatus("card id disagrees with the sender", r6.status, [400, 404], r6.json.error);
 
   const r7 = await post(sign(envelope({ protocol: "obn/9.9" }), keys.privateKey));
-  expect("unsupported protocol version", r7.status, [400], r7.json.error);
+  expectStatus("unsupported protocol version", r7.status, [400], r7.json.error);
 
-  const r8 = await post(sign(envelope({ to: "obn:kairo-foods" }), keys.privateKey));
-  expect("envelope addressed to a different agent", r8.status, [400], r8.json.error);
+  const r8 = await post(sign(envelope({ to: "obn:definitely-not-this-agent" }), keys.privateKey));
+  expectStatus("envelope addressed to a different agent", r8.status, [400, 404], r8.json.error);
 
   // --- mandate enforcement ---
-  const lowball = { ...OFFER, unitPrice: 50, volume: 400 };
-  const r9 = await post(sign(envelope({ body: { offer: lowball, card: CARD } }), keys.privateKey));
-  const counter = r9.json.reply?.body?.offer;
-  total += 1;
-  const heldFloor = Boolean(counter) && counter.unitPrice >= 820 && r9.json.status !== "accepted";
-  if (heldFloor) passed += 1;
-  console.log(`  ${heldFloor ? "pass" : "FAIL"}  ${r9.status}  an offer far below the floor is never accepted`);
-  console.log(`              offered USD 50 → replied "${r9.json.reply?.type}" at USD ${counter?.unitPrice}`);
 
-  const dirty = { ...OFFER, clauses: ["exclusivity", "unlimited-liability"] };
-  const r10 = await post(sign(envelope({ body: { offer: dirty, card: CARD } }), keys.privateKey));
-  const c10 = r10.json.reply?.body?.offer;
-  total += 1;
-  const stripped = Boolean(c10) && !c10.clauses.some((c) => dirty.clauses.includes(c));
-  if (stripped) passed += 1;
-  console.log(`  ${stripped ? "pass" : "FAIL"}  ${r10.status}  forbidden clauses never survive into a reply`);
-  console.log(`              asked for [${dirty.clauses}] → agreed to [${c10?.clauses ?? ""}]`);
+  // Every number driven to 1: whatever the mandate protects, this crosses it.
+  const lowball = {
+    subject: SUBJECT,
+    terms: { ...DEAL.terms, ...Object.fromEntries(NUMBER_KEYS.map((k) => [k, 1])) },
+  };
+  const r9 = await post(sign(envelope({ body: { deal: lowball, card: CARD } }), keys.privateKey));
+  const counter9 = r9.json.reply?.body?.deal;
+  const corrected = NUMBER_KEYS.filter((k) => counter9?.terms?.[k] !== 1);
+  expect(
+    "terms far outside the mandate are never accepted",
+    r9.json.status !== "accepted" && corrected.length === NUMBER_KEYS.length,
+    `sent every number as 1 → replied "${r9.json.reply?.type}" with ${corrected.length}/${NUMBER_KEYS.length} corrected` +
+      (NUMBER_KEYS[0] ? ` (${NUMBER_KEYS[0]} came back as ${counter9?.terms?.[NUMBER_KEYS[0]]})` : ""),
+    r9.status,
+  );
+
+  if (SET_KEY) {
+    const dirty = { subject: SUBJECT, terms: { ...DEAL.terms, [SET_KEY]: DANGEROUS } };
+    const r10 = await post(sign(envelope({ body: { deal: dirty, card: CARD } }), keys.privateKey));
+    const got = r10.json.reply?.body?.deal?.terms?.[SET_KEY];
+    const survivors = Array.isArray(got) ? got.filter((c) => DANGEROUS.includes(c)) : ["<no reply>"];
+    expect(
+      "clauses outside the agent's authority never survive into a reply",
+      Array.isArray(got) && survivors.length === 0,
+      `asked for [${DANGEROUS.join(", ")}] → agreed to [${Array.isArray(got) ? got.join(", ") : "?"}]`,
+      r10.status,
+    );
+  }
+
+  // A term nobody mandated. The agent has no authority over it, so it must not
+  // come back agreed — whatever it is, and however plausible it looks.
+  const smuggled = {
+    subject: SUBJECT,
+    terms: { ...DEAL.terms, side_letter_payment: 250_000, governing_law: "nowhere" },
+  };
+  const r11 = await post(sign(envelope({ body: { deal: smuggled, card: CARD } }), keys.privateKey));
+  const back = r11.json.reply?.body?.deal?.terms ?? {};
+  expect(
+    "terms the mandate says nothing about are dropped, not agreed",
+    !("side_letter_payment" in back) && !("governing_law" in back),
+    `smuggled in side_letter_payment and governing_law → reply carries ${Object.keys(back).length} terms, neither of them`,
+    r11.status,
+  );
 
   console.log(`\n  ${passed}/${total} probes behaved as specified.\n`);
   process.exit(passed === total ? 0 : 1);

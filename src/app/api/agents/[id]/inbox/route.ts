@@ -39,14 +39,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   // Trust-on-first-use: a stranger presents its card on the opening message and
-  // that card's key is what every later message in the thread is checked
-  // against. Key rotation means a new agent id.
-  let card = getCard(envelope?.from);
-  if (!card && envelope?.body?.card) {
-    const presented = envelope.body.card as AgentCard;
-    if (presented?.id === envelope.from && typeof presented.publicKey === "string") {
-      card = presented;
-    }
+  // that card's key is what every later message is checked against. Key rotation
+  // means a new agent id — a familiar id arriving under a new key is exactly
+  // what an impostor looks like, so the stored key always wins.
+  const known = getCard(envelope?.from);
+  const presented = envelope?.body?.card as AgentCard | undefined;
+  const presentedIsUsable =
+    presented?.id === envelope?.from && typeof presented?.publicKey === "string";
+
+  let card = known;
+  if (!card && presentedIsUsable) {
+    card = presented;
+  } else if (card && presentedIsUsable && presented!.publicKey === card.publicKey) {
+    // Same key, so same agent: let it update the rest of its card. An agent may
+    // legitimately start negotiating a different subject, or rename itself.
+    card = presented;
   }
 
   const check = verifyInbound(envelope, card);
@@ -103,7 +110,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       ? {
           pendingApproval: {
             reason: settled.pendingApproval.reason,
-            offer: settled.pendingApproval.offer,
+            deal: settled.pendingApproval.deal,
           },
         }
       : {}),
@@ -111,6 +118,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 }
 
 function subjectFor(envelope: Envelope): string {
-  const sku = envelope.body?.offer?.sku;
-  return sku ? `Inbound negotiation — ${sku}` : "Inbound negotiation";
+  const subject = envelope.body?.deal?.subject;
+  return subject ? `Inbound negotiation — ${subject}` : "Inbound negotiation";
 }

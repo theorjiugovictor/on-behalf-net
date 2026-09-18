@@ -8,7 +8,9 @@
 
 import { NextResponse } from "next/server";
 import { agentIdForDomain, generateKeyPair } from "@/lib/identity";
+import { SCENARIOS } from "@/lib/seed";
 import { listAgents, putAgent, rememberForeignCard, getCard } from "@/lib/store";
+import { publicSpec } from "@/lib/terms";
 import { PROTOCOL, type AgentCard, type LocalAgent, type Mandate } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -19,8 +21,9 @@ export async function GET() {
     hosted: true,
     mandateVersion: a.mandate.version,
     role: a.mandate.role,
+    subject: a.mandate.subject,
   }));
-  return NextResponse.json({ protocol: PROTOCOL, agents: hosted });
+  return NextResponse.json({ protocol: PROTOCOL, agents: hosted, scenarios: SCENARIOS });
 }
 
 type CreateBody = {
@@ -73,8 +76,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Agent "${id}" already exists.` }, { status: 409 });
   }
 
+  if (!Array.isArray(body.mandate.terms) || body.mandate.terms.length === 0) {
+    return NextResponse.json(
+      { error: "`mandate.terms` must list at least one term this agent may negotiate." },
+      { status: 400 },
+    );
+  }
+
   const { publicKey, privateKey } = generateKeyPair();
   const base = process.env.OBN_PUBLIC_URL ?? new URL(req.url).origin;
+  const mandate: Mandate = { ...body.mandate, agentId: id, approval: body.mandate.approval ?? [] };
   const agent: LocalAgent = {
     card: {
       protocol: PROTOCOL,
@@ -84,10 +95,15 @@ export async function POST(req: Request) {
       purpose: body.purpose,
       publicKey,
       endpoint: `${base}/api/agents/${encodeURIComponent(id)}/inbox`,
-      capabilities: [body.mandate.role === "seller" ? "sell" : "buy", "negotiate", "traverse"],
+      capabilities: ["negotiate", "traverse"],
+      negotiates: {
+        subject: mandate.subject,
+        role: mandate.role,
+        terms: mandate.terms.map(publicSpec),
+      },
     },
     privateKey,
-    mandate: { ...body.mandate, agentId: id },
+    mandate,
     createdAt: new Date().toISOString(),
   };
   putAgent(agent);

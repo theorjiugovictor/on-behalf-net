@@ -19,21 +19,22 @@ export type TraversalResult = {
   source: "live" | "fixture";
 };
 
-/** Search terms derived from what the agent is mandated to do. */
+/**
+ * Search terms derived from what the agent is mandated to do. The mandate's
+ * subject and the headline term it fights hardest for are enough to steer a
+ * search in any industry, without the query builder knowing which one it is in.
+ */
 export function queriesFor(agent: LocalAgent): string[] {
   const { mandate, card } = agent;
-  const subject = mandate.sku.replace(/[-_]/g, " ");
-  return mandate.role === "seller"
-    ? [
-        `companies expanding shipments needing ${subject}`,
-        `${subject} demand growth ${card.domain.split(".")[0]}`,
-        `new entrants buying ${subject} capacity`,
-      ]
-    : [
-        `suppliers offering ${subject} contracts`,
-        `${subject} capacity available fixed term`,
-        `${subject} market rates current quarter`,
-      ];
+  const subject = mandate.subject.replace(/[-_]/g, " ");
+  const headline = [...mandate.terms].sort((a, b) => b.weight - a.weight)[0];
+  const company = card.domain.split(".")[0];
+
+  return [
+    `companies looking for ${subject}`,
+    `${subject} ${mandate.role} market ${headline ? headline.label.toLowerCase() : "terms"}`,
+    `${subject} deals announced ${company}`,
+  ];
 }
 
 export async function traverse(agent: LocalAgent, limit = 6): Promise<TraversalResult> {
@@ -57,7 +58,7 @@ export async function traverse(agent: LocalAgent, limit = 6): Promise<TraversalR
     system:
       `You screen web results for ${agent.card.name}.\n\n` +
       `What they do: ${agent.card.purpose}\n` +
-      `They are a ${agent.mandate.role} of "${agent.mandate.sku}".\n\n` +
+      `They act as the ${agent.mandate.role} side of "${agent.mandate.subject}".\n\n` +
       `Keep only results that could plausibly lead to a commercial conversation. ` +
       `Discard general news with no counterparty behind it. For each kept result, ` +
       `say in one sentence why it is worth this company's time, and score it 0-1.\n\n` +

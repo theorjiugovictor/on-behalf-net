@@ -6,26 +6,40 @@
  * Turns are stepped one at a time on a timer rather than run to completion, so
  * an audience can actually read the exchange, and so one slow model call stalls
  * a single turn instead of the whole thread.
+ *
+ * The scenario picker is the argument: freight, recruiting and sponsorship run
+ * on the same engine, the same protocol and the same approval gate. Nothing is
+ * swapped between them except the mandates, which are data.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { AgentPanel, Turn } from "@/components/ui";
-import type { AgentCard, Thread } from "@/lib/types";
+import { AgentPanel, Turn, type TermDict } from "@/components/ui";
+import type { AgentCard, PublicTermSpec, Thread } from "@/lib/types";
+
+type Scenario = {
+  id: string;
+  title: string;
+  blurb: string;
+  subject: string;
+  opens: string;
+  responds: string;
+};
 
 type ThreadResponse = {
   thread: Thread;
   participants: Record<string, AgentCard | null>;
+  terms: Record<string, PublicTermSpec>;
   nextTurn: string | null;
   nextTurnName: string | null;
 };
 
-type AgentListItem = AgentCard & { role?: string; hosted?: boolean };
-
 const STEP_MS = 1900;
 
 export default function FloorPage() {
-  const [agents, setAgents] = useState<AgentListItem[]>([]);
+  const [agents, setAgents] = useState<AgentCard[]>([]);
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [picked, setPicked] = useState<string>("");
   const [data, setData] = useState<ThreadResponse | null>(null);
   const [auto, setAuto] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -35,9 +49,16 @@ export default function FloorPage() {
   useEffect(() => {
     fetch("/api/agents")
       .then((r) => r.json())
-      .then((d) => setAgents(d.agents ?? []))
+      .then((d) => {
+        setAgents(d.agents ?? []);
+        setScenarios(d.scenarios ?? []);
+        if (d.scenarios?.[0]) setPicked(d.scenarios[0].id);
+      })
       .catch(() => setError("Could not load agents."));
   }, []);
+
+  const scenario = scenarios.find((s) => s.id === picked) ?? null;
+  const cardFor = (id?: string) => agents.find((a) => a.id === id) ?? null;
 
   const load = useCallback(async (id: string) => {
     const res = await fetch(`/api/threads/${id}`, { cache: "no-store" });
@@ -45,22 +66,17 @@ export default function FloorPage() {
   }, []);
 
   const openFloor = useCallback(async () => {
+    if (!scenario) return;
     setError(null);
     setBusy(true);
     try {
-      const seller = agents.find((a) => a.role === "seller") ?? agents[0];
-      const buyer = agents.find((a) => a.role === "buyer") ?? agents[1];
-      if (!seller || !buyer) {
-        setError("Need at least two agents. Add one from the onboarding page.");
-        return;
-      }
       const res = await fetch("/api/threads", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          a: seller.id,
-          b: buyer.id,
-          subject: "Lagos–Accra reefer lane capacity",
+          a: scenario.opens,
+          b: scenario.responds,
+          subject: scenario.title,
         }),
       });
       const json = await res.json();
@@ -73,7 +89,7 @@ export default function FloorPage() {
     } finally {
       setBusy(false);
     }
-  }, [agents, load]);
+  }, [scenario, load]);
 
   const step = useCallback(async () => {
     if (!data?.thread) return;
@@ -112,13 +128,14 @@ export default function FloorPage() {
 
   const thread = data?.thread;
   const participants = data?.participants ?? {};
+  const terms: TermDict = data?.terms ?? {};
 
   return (
     <main>
       <div className="eyebrow">The floor</div>
       <h1>Two agents, one deal</h1>
       <p className="lede">
-        Each side is bound by a mandate its company set. Every offer is checked against that mandate
+        Each side is bound by a mandate its company set. Every term is checked against that mandate
         before it is signed, and nothing becomes binding until a human says so.
       </p>
 
@@ -130,16 +147,35 @@ export default function FloorPage() {
 
       {!thread ? (
         <>
-          <div className="facing" style={{ marginTop: 24 }}>
-            <AgentPanel card={agents.find((a) => a.role === "seller") ?? null} role="seller" />
-            <div className="vs">VS</div>
-            <AgentPanel card={agents.find((a) => a.role === "buyer") ?? null} role="buyer" />
+          <div className="scenario-row">
+            {scenarios.map((s) => (
+              <button
+                key={s.id}
+                className="scenario"
+                data-picked={s.id === picked}
+                onClick={() => setPicked(s.id)}
+              >
+                <span className="scenario-title">{s.title}</span>
+                <span className="scenario-blurb">{s.blurb}</span>
+              </button>
+            ))}
           </div>
+
+          <p className="muted" style={{ marginTop: 14 }}>
+            Same engine, same protocol, same approval gate in all three. Only the mandates differ,
+            and a mandate is data.
+          </p>
+
+          <div className="facing" style={{ marginTop: 18 }}>
+            <AgentPanel card={cardFor(scenario?.opens)} role="opens" />
+            <div className="vs">VS</div>
+            <AgentPanel card={cardFor(scenario?.responds)} role="responds" />
+          </div>
+
           <div className="controls">
-            <button className="btn btn-primary" onClick={openFloor} disabled={busy || agents.length < 2}>
+            <button className="btn btn-primary" onClick={openFloor} disabled={busy || !scenario}>
               {busy ? "Opening…" : "Open the floor"}
             </button>
-            <span className="muted">Starts a fresh negotiation between the two agents above.</span>
           </div>
         </>
       ) : (
@@ -193,14 +229,11 @@ export default function FloorPage() {
             </div>
           )}
 
-          {thread.status === "accepted" && thread.settledOffer && (
+          {thread.status === "accepted" && thread.settledDeal && (
             <div className="banner" style={{ borderColor: "var(--ok)", background: "var(--ok-dim)" }}>
               <h3 style={{ color: "var(--ok)" }}>Deal closed</h3>
-              <p style={{ color: "#a7e8c0" }}>
-                Settled at {thread.settledOffer.currency}{" "}
-                {thread.settledOffer.unitPrice.toLocaleString()} per unit ×{" "}
-                {thread.settledOffer.volume.toLocaleString()} units, over{" "}
-                {thread.settledOffer.termMonths} months. Every step above is signed and replayable.
+              <p style={{ color: "#a7e8c0", marginBottom: 0 }}>
+                Every step above is signed and replayable.
               </p>
             </div>
           )}
@@ -212,6 +245,7 @@ export default function FloorPage() {
                 turn={turn}
                 side={turn.envelope.from === thread.a ? "a" : "b"}
                 name={participants[turn.envelope.from]?.name ?? turn.envelope.from}
+                terms={terms}
               />
             ))}
             {thread.turns.length === 0 && (

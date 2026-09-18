@@ -1,6 +1,6 @@
 # Running the demo
 
-## Before you walk on
+## Before you start
 
 ```bash
 npm install && npm run build && npm start
@@ -8,21 +8,22 @@ curl -s localhost:3000/api/health
 ```
 
 `mode` tells you what you are running on: `live`, `partial`, or `offline`. All three work. If the
-venue wifi dies mid-demo, the floor keeps negotiating — the fallbacks are on the same code path,
-not a separate "demo mode", so nothing about the screen changes.
+network dies mid-demo the floor keeps negotiating — the fallbacks are on the same code path, not a
+separate "demo mode", so nothing about the screen changes.
 
 Open two tabs: `/floor` and `/inbox`. Have a terminal ready in the repo directory.
 
-## The run, four minutes
+## The run
 
 **1 · Presence** — `/onboard`
 
 Type a company URL. An agent comes back with its own keypair, a purpose read off the company's own
-site, and a starter mandate. The line to land: *a company got an email address, then a website.
-This is the next one.*
+site, and a starter mandate whose terms were inferred from what that company actually trades. The
+line to land: *a company got an email address, then a website. This is the next one.*
 
-The starter mandate sets `autoApproveBelowValue: 0` — a brand new agent can negotiate but cannot
-close anything without a human. Worth pointing out; it is the kind of default that tells a
+The starter mandate always carries an `always` approval rule — a brand new agent can negotiate but
+cannot close anything without a human, and its set terms have an empty allowlist so it cannot agree
+to a clause the model invented. Worth pointing out; it is the kind of default that tells a
 governance-minded audience you have thought about this.
 
 **2 · Traversal** — `/traverse`
@@ -33,50 +34,62 @@ unkeyed it returns fixtures in the identical shape and the strip says so honestl
 
 **3 · Negotiation** — `/floor`
 
-Open the floor and let it run. Eight turns, roughly fifteen seconds. Two things to point at:
+Three scenarios sit on the picker: freight, executive search, shirt sponsorship. **Run one, then run
+another.** That is the whole argument for the architecture in ten seconds — same engine, same
+protocol, same approval gate, and the only thing that changed is data.
+
+Things to point at:
 
 - Each turn carries a green **within mandate** badge. That is not the model saying so — it is a
   deterministic check that ran before the message was signed.
-- They converge from 1,049 and 841 to about 921, between the seller's floor and the buyer's
-  ceiling. Neither side is told where the other's limits are.
+- The **fit** number is how good those terms are for the agent sending them, against its own
+  mandate. Watch it fall as each side concedes.
+- In the sponsorship, watch **category exclusivity**. The club opens refusing it and the brand
+  demands it. Around turn seven the club gives way and its fit drops from 77 to 56 — it surrendered
+  the thing it had been defending, because the brand weighted it higher. Nobody scripted that.
+- In the freight run, the shipper requires **temperature-logging** and the carrier absorbs it. Set
+  terms negotiate too.
 
 **4 · Approval** — the banner, then `/inbox`
 
 The thread stops itself: *the agents have agreed, a human has not.* This is the moment. Switch to
-the inbox, add a note, approve. The approval is signed and recorded on the wire like any other
-move, so the audit trail shows a person closed it.
+the inbox, add a note, approve. The approval is signed and recorded on the wire like any other move,
+so the audit trail shows a person closed it.
 
 **5 · BYOA** — the terminal
 
 ```bash
-npm run demo
+npm run demo                                          # freight
+npm run demo -- http://localhost:3000 obn:lantern-talent   # executive search
+npm run demo -- http://localhost:3000 obn:harbour-fc       # sponsorship
 ```
 
-A third-party agent, no dependencies, not running on the node. It mints a keypair, is learned by
-the node on its first message, negotiates a real deal, and verifies every reply's signature. When
-it accepts a large deal, the node parks it for a human on *its* side — a counterparty cannot bind
-you past your own mandate by agreeing.
+One file, no dependencies, not running on the node. It says `hello`, lets the counterparty open,
+reads the term vocabulary off their card, and negotiates whatever they trade. Running it against
+all three targets is the point: *the same external agent closed a freight contract, a recruiting
+engagement and a sponsorship, and it has never heard of any of them.*
+
+When it accepts a large deal, the node parks it for a human on *its* side — a counterparty cannot
+bind you past your own mandate by agreeing.
 
 Then, if anyone asks what stops them from cheating:
 
 ```bash
 npm run probe
+npm run probe -- http://localhost:3000 obn:harbour-fc
 ```
 
-Ten probes: forged signatures, tampered bodies, unknown senders, an offer at USD 50 against a floor
-of 820, clauses the agent may never agree to. All ten refused or corrected.
-
-## Decision: does BYOA go in tonight?
-
-It already is in — that was the point of building the protocol as the seam rather than as a later
-extraction. You do not have to choose between shipping it and describing it. Run `npm run demo` if
-the room is technical and you have four minutes; describe it over the `/protocol` page if you are
-short on time. Either way the claim is demonstrated rather than promised.
+Eleven probes: forged signatures, bodies tampered after signing, unknown senders, every number
+driven to 1, clauses the agent may never agree to, and two terms smuggled in that no mandate
+mentions. All refused or corrected, in every industry.
 
 ## If something goes wrong
 
-- **Floor will not start** — needs two agents. `curl localhost:3000/api/agents`.
+- **Floor will not start** — needs the seeded agents. `curl localhost:3000/api/agents`.
 - **A turn hangs** — a slow model call stalls one turn, not the thread. Press Step once.
 - **Everything is slow** — unset `NEBIUS_API_KEY` and restart. Runs on the local strategy, still
   converges, still escalates.
+- **The external agent is refused with a signature error** — it derives a stable key from its agent
+  id, so this means something else is using that id with a different key. Change the seed string in
+  `examples/byoa-agent.mjs`.
 - **Reset between runs** — press New negotiation, or restart the server to clear all state.
