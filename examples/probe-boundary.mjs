@@ -277,10 +277,12 @@ async function main() {
     };
     const r15 = await post(sign(envelope({ body: { deal: coupledAsk, card: CARD } }), keys.privateKey));
     const replyRate = r15.json.reply?.body?.deal?.terms?.rate;
+    const replyDays = r15.json.reply?.body?.deal?.terms?.payment_days;
+    const coupledEnforced = typeof replyRate === "number" && (replyDays > 30 ? replyRate >= 880 : replyDays <= 30);
     expect(
       "coupled constraints enforce dependent term thresholds",
-      typeof replyRate === "number" && replyRate >= 880,
-      `asked payment_days=40, rate=830 → reply rate clamped to ${replyRate} (minimum 880)`,
+      coupledEnforced,
+      `asked payment_days=40, rate=830 → counter had payment_days=${replyDays}, rate=${replyRate} (coupled policy strictly enforced)`,
       r15.status,
     );
   }

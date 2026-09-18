@@ -27,6 +27,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       [thread.a]: getCard(thread.a) ?? null,
       [thread.b]: getCard(thread.b) ?? null,
     },
+    mandates: {
+      [thread.a]: getAgent(thread.a)?.mandate ?? null,
+      [thread.b]: getAgent(thread.b)?.mandate ?? null,
+    },
     terms: termDictionary(thread),
     nextTurn: next,
     nextTurnName: next ? getCard(next)?.name ?? next : null,

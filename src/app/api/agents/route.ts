@@ -22,6 +22,7 @@ export async function GET() {
     mandateVersion: a.mandate.version,
     role: a.mandate.role,
     subject: a.mandate.subject,
+    mandate: a.mandate,
   }));
   return NextResponse.json({ protocol: PROTOCOL, agents: hosted, scenarios: SCENARIOS });
 }

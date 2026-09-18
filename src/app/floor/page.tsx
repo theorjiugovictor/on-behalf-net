@@ -15,7 +15,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AgentPanel, Turn, type TermDict } from "@/components/ui";
-import type { AgentCard, PublicTermSpec, Thread } from "@/lib/types";
+import { ScanQRButton } from "@/components/ScanQRButton";
+import type { AgentCard, Mandate, PublicTermSpec, Thread } from "@/lib/types";
 
 type Scenario = {
   id: string;
@@ -29,6 +30,7 @@ type Scenario = {
 type ThreadResponse = {
   thread: Thread;
   participants: Record<string, AgentCard | null>;
+  mandates?: Record<string, Mandate | null>;
   terms: Record<string, PublicTermSpec>;
   nextTurn: string | null;
   nextTurnName: string | null;
@@ -37,9 +39,10 @@ type ThreadResponse = {
 const STEP_MS = 1900;
 
 export default function FloorPage() {
-  const [agents, setAgents] = useState<AgentCard[]>([]);
+  const [agents, setAgents] = useState<(AgentCard & { mandate?: Mandate })[]>([]);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [picked, setPicked] = useState<string>("");
+  const [mySide, setMySide] = useState<"a" | "b">("a");
   const [data, setData] = useState<ThreadResponse | null>(null);
   const [auto, setAuto] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -130,6 +133,20 @@ export default function FloorPage() {
   const participants = data?.participants ?? {};
   const terms: TermDict = data?.terms ?? {};
 
+  const cardA = thread ? (participants[thread.a] ?? cardFor(thread.a)) : cardFor(scenario?.opens);
+  const cardB = thread ? (participants[thread.b] ?? cardFor(thread.b)) : cardFor(scenario?.responds);
+
+  const mandateA = thread
+    ? (data?.mandates?.[thread.a] ?? cardFor(thread.a)?.mandate ?? null)
+    : (cardFor(scenario?.opens)?.mandate ?? null);
+
+  const mandateB = thread
+    ? (data?.mandates?.[thread.b] ?? cardFor(thread.b)?.mandate ?? null)
+    : (cardFor(scenario?.responds)?.mandate ?? null);
+
+  const myAgentName = mySide === "a" ? (cardA?.name ?? "Agent A") : (cardB?.name ?? "Agent B");
+  const myRole = mySide === "a" ? (cardA?.negotiates?.role ?? "Opens") : (cardB?.negotiates?.role ?? "Responds");
+
   return (
     <main>
       <div className="eyebrow">The floor</div>
@@ -145,6 +162,50 @@ export default function FloorPage() {
         </div>
       )}
 
+      {/* Perspective & Mandate Enforcer Bar */}
+      {(cardA || cardB) && (
+        <div className="perspective-bar">
+          <div>
+            <span className="eyebrow" style={{ fontSize: 10, display: "block", marginBottom: 2 }}>
+              Your Perspective & Mandate Enforcer
+            </span>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span>Representing:</span>
+              <span style={{ textDecoration: "underline", textUnderlineOffset: 3 }}>
+                {myAgentName}
+              </span>
+              <span className="badge" style={{ background: "#09090b", color: "#ffffff", fontWeight: 700, fontSize: 11 }}>
+                On Your Behalf ({myRole})
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "var(--text-faint)" }}>Switch Side:</span>
+            <div className="perspective-pill-group">
+              <button
+                type="button"
+                className={`perspective-pill ${mySide === "a" ? "active" : ""}`}
+                onClick={() => setMySide("a")}
+              >
+                {cardA?.name ?? "Agent A"} ({cardA?.negotiates?.role ?? "Opens"})
+              </button>
+              <button
+                type="button"
+                className={`perspective-pill ${mySide === "b" ? "active" : ""}`}
+                onClick={() => setMySide("b")}
+              >
+                {cardB?.name ?? "Agent B"} ({cardB?.negotiates?.role ?? "Responds"})
+              </button>
+            </div>
+            <ScanQRButton label="Participate (QR)" className="btn" style={{ fontSize: 12, padding: "5px 10px" }} />
+            <Link href="/onboard" className="btn" style={{ fontSize: 12, padding: "5px 10px" }}>
+              My Agents Fleet →
+            </Link>
+          </div>
+        </div>
+      )}
+
       {!thread ? (
         <>
           <div className="scenario-row">
@@ -153,7 +214,10 @@ export default function FloorPage() {
                 key={s.id}
                 className="scenario"
                 data-picked={s.id === picked}
-                onClick={() => setPicked(s.id)}
+                onClick={() => {
+                  setPicked(s.id);
+                  setMySide("a");
+                }}
               >
                 <span className="scenario-title">{s.title}</span>
                 <span className="scenario-blurb">{s.blurb}</span>
@@ -167,9 +231,19 @@ export default function FloorPage() {
           </p>
 
           <div className="facing" style={{ marginTop: 18 }}>
-            <AgentPanel card={cardFor(scenario?.opens)} role="opens" />
+            <AgentPanel
+              card={cardA}
+              role="opens"
+              mandate={mandateA}
+              isMine={mySide === "a"}
+            />
             <div className="vs">VS</div>
-            <AgentPanel card={cardFor(scenario?.responds)} role="responds" />
+            <AgentPanel
+              card={cardB}
+              role="responds"
+              mandate={mandateB}
+              isMine={mySide === "b"}
+            />
           </div>
 
           <div className="controls">
@@ -181,9 +255,19 @@ export default function FloorPage() {
       ) : (
         <>
           <div className="facing" style={{ marginTop: 24 }}>
-            <AgentPanel card={participants[thread.a] ?? null} role="opens" />
+            <AgentPanel
+              card={cardA}
+              role="opens"
+              mandate={mandateA}
+              isMine={mySide === "a"}
+            />
             <div className="vs">VS</div>
-            <AgentPanel card={participants[thread.b] ?? null} role="responds" />
+            <AgentPanel
+              card={cardB}
+              role="responds"
+              mandate={mandateB}
+              isMine={mySide === "b"}
+            />
           </div>
 
           <div className="status-strip">
@@ -239,15 +323,20 @@ export default function FloorPage() {
           )}
 
           <div>
-            {thread.turns.map((turn, i) => (
-              <Turn
-                key={turn.envelope.id + i}
-                turn={turn}
-                side={turn.envelope.from === thread.a ? "a" : "b"}
-                name={participants[turn.envelope.from]?.name ?? turn.envelope.from}
-                terms={terms}
-              />
-            ))}
+            {thread.turns.map((turn, i) => {
+              const isFromA = turn.envelope.from === thread.a;
+              const isMine = (mySide === "a" && isFromA) || (mySide === "b" && !isFromA);
+              return (
+                <Turn
+                  key={turn.envelope.id + i}
+                  turn={turn}
+                  side={isFromA ? "a" : "b"}
+                  name={participants[turn.envelope.from]?.name ?? turn.envelope.from}
+                  terms={terms}
+                  isMine={isMine}
+                />
+              );
+            })}
             {thread.turns.length === 0 && (
               <div className="empty">Press Run to open the negotiation.</div>
             )}

@@ -262,7 +262,23 @@ async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> 
   }
 
   // --- Counter ---
-  const proposed = (await modelCounter(agent, thread, theirDeal)) ?? nextMove;
+  // If counterparty stonewalled (zero movement across last two turns), hold ground firmly
+  // under reciprocal Tit-for-Tat rather than letting LLM hallucinate concessions.
+  let isStonewalled = false;
+  if (myLastDeal && them) {
+    const theirRecent = recentDealsFrom(thread, them, 2);
+    if (theirRecent.length >= 2) {
+      const priorUtility = utilityOf(theirRecent[0], mandate);
+      const currentUtility = utilityOf(theirRecent[1], mandate);
+      if (currentUtility - priorUtility <= 0.0001) {
+        isStonewalled = true;
+      }
+    }
+  }
+
+  const proposed = isStonewalled
+    ? nextMove
+    : ((await modelCounter(agent, thread, theirDeal)) ?? nextMove);
 
   const verdict = evaluateDeal(proposed.deal, mandate, context);
   let deal = proposed.deal;

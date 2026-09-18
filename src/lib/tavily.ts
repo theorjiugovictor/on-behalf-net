@@ -35,7 +35,10 @@ async function post<T>(path: string, body: unknown): Promise<T | null> {
         "content-type": "application/json",
         authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        api_key: apiKey,
+        ...(typeof body === "object" && body !== null ? body : {}),
+      }),
       signal: controller.signal,
     });
     if (!res.ok) {

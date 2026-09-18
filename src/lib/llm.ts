@@ -14,8 +14,11 @@ const BASE_URL = process.env.NEBIUS_BASE_URL ?? "https://api.studio.nebius.com/v
 const MODEL = process.env.NEBIUS_MODEL ?? "meta-llama/Llama-3.3-70B-Instruct";
 const TIMEOUT_MS = Number(process.env.NEBIUS_TIMEOUT_MS ?? 20_000);
 
+const getApiKey = () =>
+  process.env.NEBIUS_API_KEY || process.env.NEBIUM_TOKEN_FACTORY_API_KEY;
+
 export function modelConfigured(): boolean {
-  return Boolean(process.env.NEBIUS_API_KEY);
+  return Boolean(getApiKey());
 }
 
 export function modelName(): string {
@@ -32,7 +35,7 @@ type ChatOptions = {
 };
 
 async function chat(opts: ChatOptions): Promise<string | null> {
-  const apiKey = process.env.NEBIUS_API_KEY;
+  const apiKey = getApiKey();
   if (!apiKey) return null;
 
   const controller = new AbortController();
