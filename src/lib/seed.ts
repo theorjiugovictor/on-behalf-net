@@ -88,6 +88,11 @@ export type Scenario = {
   subject: string;
   opens: string;
   responds: string;
+  ricardian?: {
+    templateId: string;
+    templateHash: string;
+    jurisdiction?: string;
+  };
 };
 
 export const SCENARIOS: Scenario[] = [
@@ -98,6 +103,11 @@ export const SCENARIOS: Scenario[] = [
     subject: "reefer-lane-lagos-accra",
     opens: "obn:meridian-coldchain",
     responds: "obn:kairo-foods",
+    ricardian: {
+      templateId: "bimco-reefer-standard-2024",
+      templateHash: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      jurisdiction: "UK-EW",
+    },
   },
   {
     id: "recruiting",
@@ -106,6 +116,11 @@ export const SCENARIOS: Scenario[] = [
     subject: "senior-robotics-engineer-search",
     opens: "obn:lantern-talent",
     responds: "obn:arcadia-robotics",
+    ricardian: {
+      templateId: "aesc-retained-search-2024",
+      templateHash: "sha256:d82c4298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852a194",
+      jurisdiction: "US-DE",
+    },
   },
   {
     id: "sponsorship",
@@ -114,6 +129,11 @@ export const SCENARIOS: Scenario[] = [
     subject: "harbour-fc-2027-shirt-sponsorship",
     opens: "obn:harbour-fc",
     responds: "obn:nimbus-drinks",
+    ricardian: {
+      templateId: "uefa-commercial-sponsorship-2025",
+      templateHash: "sha256:c18a4298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852f821",
+      jurisdiction: "CH-CAS",
+    },
   },
 ];
 
@@ -160,6 +180,14 @@ function freightPair(): LocalAgent[] {
             },
             direction: "match",
             weight: 0.6,
+          },
+        ],
+        coupledConstraints: [
+          {
+            id: "cc-freight-payment-rate",
+            description: "Extended payment days (>30) require rate per unit of at least 880 USD",
+            when: { term: "payment_days", op: ">", value: 30 },
+            enforce: { term: "rate", op: ">=", value: 880 },
           },
         ],
         approval: [

@@ -42,8 +42,41 @@ export const specFor = (mandate: Mandate, key: string): TermSpec | undefined =>
   mandate.terms.find((t) => t.key === key);
 
 // ---------------------------------------------------------------------------
-// Evaluation
-// ---------------------------------------------------------------------------
+function compareValues(a: unknown, op: string, b: unknown): boolean {
+  if (typeof a === "number" && typeof b === "number") {
+    switch (op) {
+      case ">": return a > b;
+      case "<": return a < b;
+      case ">=": return a >= b;
+      case "<=": return a <= b;
+      case "=": return a === b;
+    }
+  }
+  if (op === "=") return a === b;
+  return false;
+}
+
+export function checkCoupledConstraints(deal: Deal, mandate: Mandate): Violation[] {
+  const violations: Violation[] = [];
+  if (!mandate.coupledConstraints) return violations;
+
+  for (const cc of mandate.coupledConstraints) {
+    const whenVal = deal.terms[cc.when.term];
+    if (whenVal === undefined) continue;
+    if (compareValues(whenVal, cc.when.op, cc.when.value)) {
+      const enforceVal = deal.terms[cc.enforce.term];
+      if (enforceVal === undefined || !compareValues(enforceVal, cc.enforce.op, cc.enforce.value)) {
+        violations.push({
+          code: "coupled-constraint-violation",
+          term: cc.enforce.term,
+          message: `${cc.description} (triggered by ${cc.when.term} ${cc.when.op} ${cc.when.value}; requires ${cc.enforce.term} ${cc.enforce.op} ${cc.enforce.value}).`,
+          permitted: cc.enforce.value as TermValue,
+        });
+      }
+    }
+  }
+  return violations;
+}
 
 export function evaluateDeal(deal: Deal, mandate: Mandate, context: PolicyContext = {}): PolicyVerdict {
   const violations: Violation[] = [];
@@ -82,6 +115,10 @@ export function evaluateDeal(deal: Deal, mandate: Mandate, context: PolicyContex
     const violation = checkTerm(value, spec);
     if (violation) violations.push(violation);
   }
+
+  // Coupled constraints across interdependent terms
+  const coupled = checkCoupledConstraints(deal, mandate);
+  if (coupled.length > 0) violations.push(...coupled);
 
   const utility = utilityOf(deal, mandate);
 
@@ -250,7 +287,20 @@ export function clampToMandate(deal: Deal, mandate: Mandate): Deal | null {
     terms[spec.key] = clamped;
   }
 
-  const result: Deal = { subject: mandate.subject, terms };
+  // Enforce coupled constraints during clamping
+  if (mandate.coupledConstraints) {
+    for (const cc of mandate.coupledConstraints) {
+      const whenVal = terms[cc.when.term];
+      if (whenVal !== undefined && compareValues(whenVal, cc.when.op, cc.when.value)) {
+        const enforceVal = terms[cc.enforce.term];
+        if (enforceVal === undefined || !compareValues(enforceVal, cc.enforce.op, cc.enforce.value)) {
+          terms[cc.enforce.term] = cc.enforce.value as TermValue;
+        }
+      }
+    }
+  }
+
+  const result: Deal = { subject: mandate.subject, terms, ...(deal.ricardian ? { ricardian: deal.ricardian } : {}) };
   return evaluateDeal(result, mandate).decision === "violates-mandate" ? null : result;
 }
 
@@ -279,6 +329,11 @@ export function describeMandate(mandate: Mandate): string {
 
   for (const spec of mandate.terms) {
     lines.push(`- ${describeSpec(spec)}`);
+  }
+
+  if (mandate.coupledConstraints?.length) {
+    lines.push("", "Interdependent term rules you must honour:");
+    for (const cc of mandate.coupledConstraints) lines.push(`- ${cc.description}`);
   }
 
   if (mandate.approval.length) {

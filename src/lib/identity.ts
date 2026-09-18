@@ -14,7 +14,7 @@ import {
   verify as nodeVerify,
   randomUUID,
 } from "node:crypto";
-import type { Envelope } from "./types";
+import type { Envelope, KeyDelegation } from "./types";
 
 // DER wrappers for raw ed25519 keys. Both are fixed-length for this curve.
 const SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
@@ -89,6 +89,39 @@ export function verifyEnvelope(envelope: Envelope, publicKey: string): boolean {
     const { sig, ...rest } = envelope;
     if (!sig) return false;
     return nodeVerify(null, signingPayload(rest), publicKeyObject(publicKey), unb64u(sig));
+  } catch {
+    return false;
+  }
+}
+
+/** Sign a delegation granting an operational key permission to sign for a root key. */
+export function signDelegation(args: {
+  rootPublicKey: string;
+  rootPrivateKey: string;
+  delegatedTo: string;
+  validUntil: string;
+}): KeyDelegation {
+  const unsigned = {
+    rootPublicKey: args.rootPublicKey,
+    delegatedTo: args.delegatedTo,
+    validUntil: args.validUntil,
+  };
+  const payload = Buffer.from(canonicalize(unsigned), "utf8");
+  const sig = nodeSign(null, payload, privateKeyObject(args.rootPrivateKey));
+  return {
+    ...unsigned,
+    sig: b64u(sig),
+  };
+}
+
+/** Verify that a delegation was signed by the root key and has not expired. */
+export function verifyDelegation(delegation: KeyDelegation): boolean {
+  try {
+    const { sig, ...unsigned } = delegation;
+    if (!sig) return false;
+    if (new Date() > new Date(delegation.validUntil)) return false;
+    const payload = Buffer.from(canonicalize(unsigned), "utf8");
+    return nodeVerify(null, payload, publicKeyObject(delegation.rootPublicKey), unb64u(sig));
   } catch {
     return false;
   }

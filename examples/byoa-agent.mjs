@@ -26,7 +26,7 @@ import {
 
 const BASE = (process.argv[2] ?? "http://localhost:3000").replace(/\/$/, "");
 const TARGET = process.argv[3] ?? "obn:meridian-coldchain";
-const PROTOCOL = "obn/0.2";
+const PROTOCOL = "obn/0.3";
 
 // --- crypto ---------------------------------------------------------------
 
@@ -363,6 +363,8 @@ async function main() {
         to: TARGET,
         type,
         ts: new Date().toISOString(),
+        validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        nonce: `non_${randomUUID().replace(/-/g, "").slice(0, 16)}`,
         body,
       },
       keys.privateKey,

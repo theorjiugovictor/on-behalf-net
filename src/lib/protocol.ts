@@ -5,9 +5,10 @@
  * `verifyInbound` before anything else touches a foreign message.
  */
 
-import { newId, signEnvelope, verifyEnvelope } from "./identity";
+import { newId, signEnvelope, verifyDelegation, verifyEnvelope } from "./identity";
+import { hasSeenNonce, recordNonce } from "./store";
 import type { AgentCard, Deal, Envelope, EnvelopeBody, MessageType, Thread } from "./types";
-import { PROTOCOL } from "./types";
+import { PROTOCOL, SUPPORTED_PROTOCOLS } from "./types";
 
 export function buildEnvelope(args: {
   from: string;
@@ -16,7 +17,11 @@ export function buildEnvelope(args: {
   type: MessageType;
   body: EnvelopeBody;
   privateKey: string;
+  validForMs?: number;
 }): Envelope {
+  const now = new Date();
+  const ts = now.toISOString();
+  const validUntil = new Date(now.getTime() + (args.validForMs ?? 24 * 60 * 60 * 1000)).toISOString();
   const unsigned: Omit<Envelope, "sig"> = {
     protocol: PROTOCOL,
     id: newId("msg"),
@@ -24,7 +29,9 @@ export function buildEnvelope(args: {
     from: args.from,
     to: args.to,
     type: args.type,
-    ts: new Date().toISOString(),
+    ts,
+    validUntil,
+    nonce: newId("non"),
     body: args.body,
   };
   return signEnvelope(unsigned, args.privateKey);
@@ -34,14 +41,14 @@ export type InboundCheck = { ok: true } | { ok: false; error: string; status: nu
 
 /**
  * Validate a message that arrived from outside this process. Order matters:
- * shape, then protocol version, then identity, then signature. A caller that
- * skips any step is trusting an unauthenticated stranger.
+ * shape, then protocol version, then replay/expiry, then identity, then signature.
+ * A caller that skips any step is trusting an unauthenticated stranger.
  */
 export function verifyInbound(envelope: Envelope, card: AgentCard | undefined): InboundCheck {
   if (!envelope || typeof envelope !== "object") {
     return { ok: false, error: "Body is not an envelope.", status: 400 };
   }
-  if (envelope.protocol !== PROTOCOL) {
+  if (!SUPPORTED_PROTOCOLS.includes(envelope.protocol as (typeof SUPPORTED_PROTOCOLS)[number])) {
     return {
       ok: false,
       error: `Unsupported protocol "${envelope.protocol}". This node speaks ${PROTOCOL}.`,
@@ -53,6 +60,31 @@ export function verifyInbound(envelope: Envelope, card: AgentCard | undefined): 
       return { ok: false, error: `Envelope is missing "${field}".`, status: 400 };
     }
   }
+
+  // Replay and expiration checks for obn/0.3
+  if (envelope.protocol === "obn/0.3") {
+    if (typeof envelope.validUntil !== "string" || !envelope.validUntil) {
+      return { ok: false, error: 'Envelope is missing "validUntil".', status: 400 };
+    }
+    if (typeof envelope.nonce !== "string" || !envelope.nonce) {
+      return { ok: false, error: 'Envelope is missing "nonce".', status: 400 };
+    }
+    const expiry = Date.parse(envelope.validUntil);
+    if (Number.isNaN(expiry)) {
+      return { ok: false, error: 'Envelope "validUntil" is not a valid date.', status: 400 };
+    }
+    if (Date.now() > expiry + 60_000) {
+      return { ok: false, error: `Envelope has expired (validUntil: ${envelope.validUntil}).`, status: 400 };
+    }
+    if (hasSeenNonce(envelope.nonce)) {
+      return {
+        ok: false,
+        error: `Envelope nonce "${envelope.nonce}" has already been processed (replay detected).`,
+        status: 409,
+      };
+    }
+  }
+
   if (!card) {
     return {
       ok: false,
@@ -65,6 +97,17 @@ export function verifyInbound(envelope: Envelope, card: AgentCard | undefined): 
   if (card.id !== envelope.from) {
     return { ok: false, error: "Card id does not match envelope sender.", status: 400 };
   }
+
+  // If card presents a delegation, verify it against the operational key
+  if (card.delegation) {
+    if (!verifyDelegation(card.delegation)) {
+      return { ok: false, error: "Card key delegation is invalid or expired.", status: 401 };
+    }
+    if (card.delegation.delegatedTo !== card.publicKey) {
+      return { ok: false, error: "Card delegation does not match operational public key.", status: 400 };
+    }
+  }
+
   if (!verifyEnvelope(envelope, card.publicKey)) {
     return {
       ok: false,
@@ -72,6 +115,12 @@ export function verifyInbound(envelope: Envelope, card: AgentCard | undefined): 
       status: 401,
     };
   }
+
+  // Record nonce once signature is verified
+  if (envelope.nonce) {
+    recordNonce(envelope.nonce);
+  }
+
   return { ok: true };
 }
 
@@ -108,6 +157,19 @@ export function lastDealFrom(thread: Thread, agentId: string): Deal | undefined 
     if (envelope.from === agentId && envelope.body.deal) return envelope.body.deal;
   }
   return undefined;
+}
+
+/** Most recent deals put on the table by `agentId`, oldest to newest. */
+export function recentDealsFrom(thread: Thread, agentId: string, limit = 2): Deal[] {
+  const deals: Deal[] = [];
+  for (let i = thread.turns.length - 1; i >= 0; i--) {
+    const { envelope } = thread.turns[i];
+    if (envelope.from === agentId && envelope.body.deal) {
+      deals.unshift(envelope.body.deal);
+      if (deals.length >= limit) break;
+    }
+  }
+  return deals;
 }
 
 export const turnsBy = (thread: Thread, agentId: string) =>

@@ -33,6 +33,7 @@ import {
   counterpartOf,
   isWellFormedDeal,
   lastDealFrom,
+  recentDealsFrom,
   turnsBy,
   whoseTurn,
 } from "./protocol";
@@ -217,7 +218,7 @@ async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> 
   // already beat the counter we were about to make, or the remaining gain is
   // too small to be worth another round. Computed from the deterministic
   // strategy so the decision to close never depends on the model.
-  const nextMove = heuristicCounter(mandate, myLastDeal, theirDeal, round);
+  const nextMove = heuristicCounter(mandate, myLastDeal, theirDeal, round, thread, them);
   const theirUtility = theirVerdict.utility;
   const nextUtility = utilityOf(nextMove.deal, mandate);
   const converged = theirUtility >= nextUtility || nextUtility - theirUtility <= CONVERGENCE;
@@ -322,16 +323,38 @@ function openingValue(spec: TermSpec): TermValue {
   return "";
 }
 
-/** Deterministic concession. Used when no model is configured, or as a floor under one. */
+/** Deterministic concession with reciprocal concession matching. */
 function heuristicCounter(
   mandate: Mandate,
   myLast: Deal | undefined,
   theirs: Deal,
   round: number,
+  thread?: Thread,
+  counterpartId?: string,
 ): { deal: Deal; rationale: string } {
-  // Concede faster as the thread ages, so threads terminate. Per-term weighting
-  // is applied inside `concedeTerm`, which knows how each type should absorb it.
-  const rate = Math.min(0.7, 0.45 + round * 0.07);
+  let rate = Math.min(0.65, 0.35 + round * 0.05);
+  let stonewalled = false;
+
+  // Reciprocal Concession Matching: If we have counterparty history, check whether they moved
+  if (thread && counterpartId) {
+    const theirRecent = recentDealsFrom(thread, counterpartId, 2);
+    if (theirRecent.length >= 2) {
+      const priorUtility = utilityOf(theirRecent[0], mandate);
+      const currentUtility = utilityOf(theirRecent[1], mandate);
+      const theirMovement = currentUtility - priorUtility;
+
+      if (theirMovement <= 0.0001) {
+        // Counterparty made zero concession or regressed away from our interests.
+        // Freeze concession to defeat the stonewall exploit.
+        rate = 0;
+        stonewalled = true;
+      } else {
+        // Concede proportionally to their movement
+        rate = Math.max(0.20, Math.min(0.65, theirMovement * 1.5 + round * 0.03));
+      }
+    }
+  }
+
   const base = myLast ?? openingDeal(mandate);
   const terms: Record<string, TermValue> = {};
 
@@ -340,8 +363,12 @@ function heuristicCounter(
     terms[spec.key] = next ?? openingValue(spec);
   }
 
-  const deal: Deal = { subject: mandate.subject, terms };
-  return { deal, rationale: concessionLine(mandate, base, deal, round) };
+  const deal: Deal = {
+    subject: mandate.subject,
+    terms,
+    ...(theirs.ricardian ?? (base.ricardian ? { ricardian: base.ricardian } : {})),
+  };
+  return { deal, rationale: concessionLine(mandate, base, deal, round, stonewalled) };
 }
 
 /** The terms that actually moved, biggest first, for writing the rationale. */
@@ -369,10 +396,19 @@ const show = (value: TermValue, spec: TermSpec) =>
  * Varied by round because this text is on screen, and repetition is what makes
  * a demo look scripted.
  */
-function concessionLine(mandate: Mandate, from: Deal, to: Deal, round: number): string {
+function concessionLine(
+  mandate: Mandate,
+  from: Deal,
+  to: Deal,
+  round: number,
+  stonewalled = false,
+): string {
   const moves = movedTerms(mandate, from, to);
 
   if (moves.length === 0) {
+    if (stonewalled) {
+      return `We are holding where we are. Without reciprocal movement from your side, we cannot offer further concessions.`;
+    }
     const tradeable = mandate.terms.filter((s) => s.weight < 0.5)[0];
     return tradeable
       ? `We are holding where we are on the headline terms, but there is room on ${tradeable.label.toLowerCase()} if that helps close it.`
@@ -550,7 +586,12 @@ export function resolveApproval(thread: Thread, approve: boolean, note?: string)
           deal: pending.deal,
           rationale:
             note?.trim() ||
-            `Approved by ${agent.card.name}. Confirmed on ${summariseDeal(pending.deal, agent.mandate)}.`,
+            `Approved by human reviewer for ${agent.card.name}. Confirmed on ${summariseDeal(pending.deal, agent.mandate)}.`,
+          humanSignOff: {
+            approver: agent.card.name,
+            approvedAt: new Date().toISOString(),
+            note: note?.trim(),
+          },
         }
       : {
           reason: note?.trim() || `Declined by a human reviewer at ${agent.card.name}.`,

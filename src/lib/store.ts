@@ -26,6 +26,8 @@ type Store = {
   contacts: Map<string, { email?: string }>;
   /** In-flight verification challenges, keyed by agent id. */
   challenges: Map<string, Challenge>;
+  /** Seen message nonces for replay attack prevention. */
+  seenNonces: Set<string>;
 };
 
 declare global {
@@ -40,6 +42,7 @@ function create(): Store {
     threads: new Map(),
     contacts: new Map(),
     challenges: new Map(),
+    seenNonces: new Set(),
   };
   for (const agent of seedAgents()) store.agents.set(agent.card.id, agent);
   return store;
@@ -140,3 +143,9 @@ export const listPendingApprovals = () =>
 export function resetThreads() {
   store.threads.clear();
 }
+
+// --- replay protection ---------------------------------------------------
+
+export const hasSeenNonce = (nonce: string) => store.seenNonces.has(nonce);
+export const recordNonce = (nonce: string) => void store.seenNonces.add(nonce);
+export const resetNonces = () => store.seenNonces.clear();

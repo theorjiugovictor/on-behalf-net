@@ -54,6 +54,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // Same key, so same agent: let it update the rest of its card. An agent may
     // legitimately start negotiating a different subject, or rename itself.
     card = presented;
+  } else if (
+    card &&
+    presentedIsUsable &&
+    presented!.delegation &&
+    presented!.delegation.rootPublicKey === (card.delegation?.rootPublicKey ?? card.publicKey)
+  ) {
+    // Rotated key backed by trusted root delegation: adopt the rotated operational key.
+    card = presented;
   }
 
   const check = verifyInbound(envelope, card);

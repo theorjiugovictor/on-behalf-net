@@ -19,7 +19,7 @@ import { createPrivateKey, generateKeyPairSync, randomUUID, sign as edSign } fro
 
 const BASE = (process.argv[2] ?? "http://localhost:3000").replace(/\/$/, "");
 const TARGET = process.argv[3] ?? "obn:meridian-coldchain";
-const PROTOCOL = "obn/0.2";
+const PROTOCOL = "obn/0.3";
 const PKCS8_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
 
 /** Clause names no well-governed agent should ever sign up to. */
@@ -113,6 +113,8 @@ const envelope = (over = {}) => ({
   to: TARGET,
   type: "propose",
   ts: new Date().toISOString(),
+  validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  nonce: `non_${randomUUID().replace(/-/g, "").slice(0, 16)}`,
   body: { deal: DEAL, card: CARD },
   ...over,
 });
@@ -244,6 +246,73 @@ async function main() {
     Boolean(asSeen) && asSeen.attestation?.level !== "domain",
     `claimed "${CARD.attestation.level}" → node records "${asSeen?.attestation?.level ?? "unknown"}"`,
     seen.status,
+  );
+
+  // --- protocol hardening: replay protection and expiration ---
+
+  const expiredEnv = sign(
+    envelope({
+      validUntil: new Date(Date.now() - 3_600_000).toISOString(), // 1 hour in the past
+    }),
+    keys.privateKey,
+  );
+  const r13 = await post(expiredEnv);
+  expectStatus("an expired envelope is refused", r13.status, [400], r13.json.error);
+
+  const freshEnv = sign(envelope(), keys.privateKey);
+  const firstPost = await post(freshEnv);
+  const replayedPost = await post(freshEnv);
+  expectStatus(
+    "a replayed envelope with duplicate nonce is refused",
+    replayedPost.status,
+    [409],
+    replayedPost.json.error,
+  );
+
+  // --- coupled constraint enforcement ---
+  if (TARGET === "obn:meridian-coldchain") {
+    const coupledAsk = {
+      subject: SUBJECT,
+      terms: { ...DEAL.terms, payment_days: 40, rate: 830 },
+    };
+    const r15 = await post(sign(envelope({ body: { deal: coupledAsk, card: CARD } }), keys.privateKey));
+    const replyRate = r15.json.reply?.body?.deal?.terms?.rate;
+    expect(
+      "coupled constraints enforce dependent term thresholds",
+      typeof replyRate === "number" && replyRate >= 880,
+      `asked payment_days=40, rate=830 → reply rate clamped to ${replyRate} (minimum 880)`,
+      r15.status,
+    );
+  }
+
+  // --- reciprocal game theory: stonewall defense ---
+  const stoneThreadId = `thr_stone_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  const stoneEnv1 = sign(
+    envelope({
+      threadId: stoneThreadId,
+      body: { deal: DEAL, card: CARD },
+    }),
+    keys.privateKey,
+  );
+  const stoneRes1 = await post(stoneEnv1);
+  const firstReplyRate = stoneRes1.json.reply?.body?.deal?.terms?.rate;
+
+  // Counterparty stonewalls: repeats exact same terms with zero concession
+  const stoneEnv2 = sign(
+    envelope({
+      threadId: stoneThreadId,
+      body: { deal: DEAL },
+    }),
+    keys.privateKey,
+  );
+  const stoneRes2 = await post(stoneEnv2);
+  const secondReplyRate = stoneRes2.json.reply?.body?.deal?.terms?.rate;
+
+  expect(
+    "stonewalling counterparty triggers zero concession defense",
+    firstReplyRate !== undefined && secondReplyRate === firstReplyRate,
+    `counterparty stonewalled with zero movement → host held rate firmly at ${secondReplyRate}`,
+    stoneRes2.status,
   );
 
   console.log(`\n  ${passed}/${total} probes behaved as specified.\n`);

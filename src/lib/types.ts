@@ -10,7 +10,8 @@
  * which is the only way "any agent with any intent" can be true.
  */
 
-export const PROTOCOL = "obn/0.2" as const;
+export const PROTOCOL = "obn/0.3" as const;
+export const SUPPORTED_PROTOCOLS = ["obn/0.2", "obn/0.3"] as const;
 
 // ---------------------------------------------------------------------------
 // Terms — the vocabulary of a deal
@@ -21,10 +22,19 @@ export type TermType = "number" | "date" | "enum" | "set" | "boolean" | "text";
 /** What a term can be worth on the wire. Interpreted via the mandate's spec. */
 export type TermValue = number | string | boolean | string[];
 
+/** Anchors the terms to an immutable legal template/contract hash. */
+export type RicardianMetadata = {
+  templateId: string;
+  templateHash: string;
+  jurisdiction?: string;
+};
+
 export type Deal = {
   /** What is being negotiated. Both sides must agree before terms are compared. */
   subject: string;
   terms: Record<string, TermValue>;
+  /** Optional Ricardian contract metadata anchoring terms to a legal master template. */
+  ricardian?: RicardianMetadata;
 };
 
 /**
@@ -127,6 +137,17 @@ export const ATTESTATION_RANK: Record<AttestationLevel, number> = {
 };
 
 /**
+ * Proof that an authority or root key delegated signing to this agent key.
+ * Enables operational key rotation without changing public agent ID.
+ */
+export type KeyDelegation = {
+  rootPublicKey: string;
+  delegatedTo: string;
+  validUntil: string;
+  sig: string;
+};
+
+/**
  * The public description of an agent, and the whole BYOA contract: anyone who
  * can serve one of these at a stable URL can be negotiated with.
  *
@@ -141,6 +162,8 @@ export type AgentCard = {
   name: string;
   principal: Principal;
   attestation: Attestation;
+  /** Optional key delegation linking this operational key to a root key. */
+  delegation?: KeyDelegation;
   /** What the principal does, in their own words. Steers the agent's reasoning. */
   purpose: string;
   /** base64url-encoded ed25519 public key (raw 32 bytes). */
@@ -169,6 +192,25 @@ export type LocalAgent = {
 // ---------------------------------------------------------------------------
 
 /**
+ * A coupled rule between terms. Solves the additive utility flaw:
+ * e.g., if payment_days > 30, then rate must be >= 1350.
+ */
+export type CoupledConstraint = {
+  id: string;
+  description: string;
+  when: {
+    term: string;
+    op: ">" | "<" | "=" | ">=" | "<=";
+    value: number | string | boolean;
+  };
+  enforce: {
+    term: string;
+    op: ">" | "<" | "=" | ">=" | "<=";
+    value: number | string | boolean;
+  };
+};
+
+/**
  * A mandate is machine-checkable, not prose. Every bound here is enforced by
  * `evaluateDeal` in mandate.ts, which is a pure function with no model in the
  * loop. The model proposes; this disposes.
@@ -182,6 +224,8 @@ export type Mandate = {
   terms: TermSpec[];
   /** Conditions that force human sign-off before an acceptance can bind. */
   approval: ApprovalRule[];
+  /** Coupled constraints linking dependent terms together. */
+  coupledConstraints?: CoupledConstraint[];
 };
 
 /**
@@ -218,7 +262,9 @@ export type ViolationCode =
   | "too-many-members"
   | "boolean-must-be"
   | "not-negotiable"
-  | "wrong-type";
+  | "wrong-type"
+  | "coupled-constraint-violation"
+  | "offer-expired";
 
 export type Violation = {
   code: ViolationCode;
@@ -259,23 +305,36 @@ export type MessageType =
   | "reject"
   | "escalate";
 
+/** Dual-signature / human sign-off ratification metadata for acceptances. */
+export type HumanSignOff = {
+  approver: string;
+  approvedAt: string;
+  note?: string;
+};
+
 export type EnvelopeBody = {
   deal?: Deal;
   /** The agent's own words. Shown to humans; never parsed for terms. */
   rationale?: string;
   reason?: string;
   card?: AgentCard;
+  /** Recorded when a human explicitly ratifies a deal. */
+  humanSignOff?: HumanSignOff;
 };
 
 /** The signed unit of exchange. `sig` covers the canonical JSON of the rest. */
 export type Envelope = {
-  protocol: typeof PROTOCOL;
+  protocol: typeof PROTOCOL | "obn/0.2";
   id: string;
   threadId: string;
   from: string;
   to: string;
   type: MessageType;
   ts: string;
+  /** Expiration timestamp preventing stale or delayed-acceptance attacks. */
+  validUntil: string;
+  /** Unique nonce preventing replay attacks. */
+  nonce: string;
   body: EnvelopeBody;
   sig: string;
 };
