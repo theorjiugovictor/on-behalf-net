@@ -21,6 +21,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const local = getAgent(agentId);
+  // Spreading the card is safe because contact details are never stored on one —
+  // they live in a separate map in store.ts, keyed by agent id. If that ever
+  // changes, this is the line that starts leaking email addresses to strangers.
   return NextResponse.json(
     {
       ...card,

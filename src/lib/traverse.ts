@@ -10,6 +10,7 @@ import { chatJSON } from "./llm";
 import { search } from "./tavily";
 import { fixtureOpportunities } from "./seed";
 import { newId } from "./identity";
+import { principalSlug } from "./principal";
 import type { LocalAgent, Opportunity } from "./types";
 
 export type TraversalResult = {
@@ -28,7 +29,7 @@ export function queriesFor(agent: LocalAgent): string[] {
   const { mandate, card } = agent;
   const subject = mandate.subject.replace(/[-_]/g, " ");
   const headline = [...mandate.terms].sort((a, b) => b.weight - a.weight)[0];
-  const company = card.domain.split(".")[0];
+  const company = principalSlug(card.principal);
 
   return [
     `companies looking for ${subject}`,

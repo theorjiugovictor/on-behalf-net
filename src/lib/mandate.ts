@@ -26,10 +26,12 @@ import {
   scoreTerm,
   typeOfBound,
 } from "./terms";
+import { meetsLevel, describeLevel } from "./principal";
 import type {
   ApprovalRule,
   Deal,
   Mandate,
+  PolicyContext,
   PolicyVerdict,
   TermSpec,
   TermValue,
@@ -43,7 +45,7 @@ export const specFor = (mandate: Mandate, key: string): TermSpec | undefined =>
 // Evaluation
 // ---------------------------------------------------------------------------
 
-export function evaluateDeal(deal: Deal, mandate: Mandate): PolicyVerdict {
+export function evaluateDeal(deal: Deal, mandate: Mandate, context: PolicyContext = {}): PolicyVerdict {
   const violations: Violation[] = [];
 
   if (deal.subject !== mandate.subject) {
@@ -87,7 +89,7 @@ export function evaluateDeal(deal: Deal, mandate: Mandate): PolicyVerdict {
     return { decision: "violates-mandate", violations, utility };
   }
 
-  const approval = approvalTriggeredBy(deal, mandate);
+  const approval = approvalTriggeredBy(deal, mandate, context);
   if (approval) {
     return { decision: "needs-approval", violations: [], utility, approvalReason: approval };
   }
@@ -129,15 +131,24 @@ export function productOfTerms(deal: Deal, keys: string[]): number | null {
 }
 
 /** The first approval rule this deal trips, rendered as prose, or null. */
-export function approvalTriggeredBy(deal: Deal, mandate: Mandate): string | null {
+export function approvalTriggeredBy(
+  deal: Deal,
+  mandate: Mandate,
+  context: PolicyContext = {},
+): string | null {
   for (const rule of mandate.approval) {
-    const reason = ruleTriggered(deal, mandate, rule);
+    const reason = ruleTriggered(deal, mandate, rule, context);
     if (reason) return reason;
   }
   return null;
 }
 
-function ruleTriggered(deal: Deal, mandate: Mandate, rule: ApprovalRule): string | null {
+function ruleTriggered(
+  deal: Deal,
+  mandate: Mandate,
+  rule: ApprovalRule,
+  context: PolicyContext,
+): string | null {
   const labelOf = (key: string) => specFor(mandate, key)?.label ?? key;
   const unitOf = (key: string) => {
     const b = specFor(mandate, key)?.bound;
@@ -173,6 +184,18 @@ function ruleTriggered(deal: Deal, mandate: Mandate, rule: ApprovalRule): string
       if (v !== rule.value) return null;
       const shown = typeof rule.value === "boolean" ? (rule.value ? "yes" : "no") : `"${rule.value}"`;
       return rule.reason ?? `${labelOf(rule.term)} of ${shown} requires human sign-off.`;
+    }
+
+    case "counterparty-below": {
+      // No card at all is the weakest case there is, not an exemption.
+      const level = context.counterparty?.attestation?.level ?? "none";
+      if (meetsLevel(level, rule.level)) return null;
+      const who = context.counterparty?.name ?? "The counterparty";
+      return (
+        rule.reason ??
+        `${who} is ${describeLevel(level)}. This mandate will not close without a ` +
+          `human unless the other side is ${describeLevel(rule.level)}.`
+      );
     }
 
     case "product-at-or-above": {
@@ -319,6 +342,8 @@ function describeRule(mandate: Mandate, rule: ApprovalRule): string {
       return `${labelOf(rule.term)} is ${String(rule.value)}.`;
     case "product-at-or-above":
       return `${rule.terms.map(labelOf).join(" × ")} reaches ${rule.value}.`;
+    case "counterparty-below":
+      return `the other side is not ${describeLevel(rule.level)}.`;
   }
 }
 

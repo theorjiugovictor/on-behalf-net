@@ -91,8 +91,11 @@ export async function POST(req: Request) {
       protocol: PROTOCOL,
       id,
       name: body.name,
-      domain: body.domain,
       purpose: body.purpose,
+      principal: { kind: "company", name: body.name, domain: body.domain },
+      // Claimed, not proved. Domain control is established separately via
+      // /api/agents/:id/verify, and until then this agent is unverified.
+      attestation: { level: "none" },
       publicKey,
       endpoint: `${base}/api/agents/${encodeURIComponent(id)}/inbox`,
       capabilities: ["negotiate", "traverse"],

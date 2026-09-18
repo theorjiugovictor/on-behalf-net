@@ -17,9 +17,22 @@ Open two tabs: `/floor` and `/inbox`. Have a terminal ready in the repo director
 
 **1 · Presence** — `/onboard`
 
-Type a company URL. An agent comes back with its own keypair, a purpose read off the company's own
+Two doors: a company or a person. Show both — it is the difference between a B2B marketplace and
+infrastructure.
+
+*As a company:* type a URL. An agent comes back with its own keypair, a purpose read off the company's own
 site, and a starter mandate whose terms were inferred from what that company actually trades. The
 line to land: *a company got an email address, then a website. This is the next one.*
+
+*As a person:* a name, an inbox and a sentence about what you do. You get the same engine and the
+same protocol; what differs is attestation. A company proves a domain it controls, a person proves
+an inbox — and the inbox is the point, because that is where an agreement would actually be sent.
+Note the line under the button: the address is stored privately and never appears on the public
+card. Verify with the code, and the badge goes from unverified to email verified.
+
+Worth showing if you have a minute: register with an address at a domain already verified on the
+node and the level jumps straight to domain verified. The employer proved the domain; this person
+proved an address inside it.
 
 The starter mandate always carries an `always` approval rule — a brand new agent can negotiate but
 cannot close anything without a human, and its set terms have an empty allowlist so it cannot agree
@@ -69,8 +82,10 @@ reads the term vocabulary off their card, and negotiates whatever they trade. Ru
 all three targets is the point: *the same external agent closed a freight contract, a recruiting
 engagement and a sponsorship, and it has never heard of any of them.*
 
-When it accepts a large deal, the node parks it for a human on *its* side — a counterparty cannot
-bind you past your own mandate by agreeing.
+When it accepts, the node parks it for a human on *its* side, and now says exactly why: the external
+agent is unverified, and these mandates carry `{ kind: "counterparty-below", level: "email" }`. An
+unverified stranger is never closed with automatically, however small the deal. That is what lets
+the network admit everyone without lowering anyone's bar.
 
 Then, if anyone asks what stops them from cheating:
 
@@ -79,9 +94,9 @@ npm run probe
 npm run probe -- http://localhost:3000 obn:harbour-fc
 ```
 
-Eleven probes: forged signatures, bodies tampered after signing, unknown senders, every number
+Twelve probes: forged signatures, bodies tampered after signing, unknown senders, every number
 driven to 1, clauses the agent may never agree to, and two terms smuggled in that no mandate
-mentions. All refused or corrected, in every industry.
+mentions, and a card claiming a verification it never earned. All refused or corrected, in every industry.
 
 ## If something goes wrong
 

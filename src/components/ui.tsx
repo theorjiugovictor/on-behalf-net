@@ -1,4 +1,5 @@
 import { formatTermValue } from "@/lib/terms";
+import { describeLevel, principalHandle } from "@/lib/principal";
 import type {
   AgentCard,
   Deal,
@@ -129,17 +130,36 @@ export function Turn({
   );
 }
 
+/**
+ * How much this identity is worth, shown wherever a counterparty appears. An
+ * unverified party is not hidden — it is labelled, so the other side can decide.
+ */
+export function AttestationBadge({ card }: { card?: AgentCard | null }) {
+  const level = card?.attestation?.level ?? "none";
+  const cls = level === "domain" ? "badge-ok" : level === "email" ? "badge-accent" : "badge-warn";
+  return (
+    <span
+      className={`badge ${cls}`}
+      title={card?.attestation?.note ?? describeLevel(level)}
+    >
+      {describeLevel(level)}
+    </span>
+  );
+}
+
 export function AgentPanel({ card, role }: { card: AgentCard | null; role?: string }) {
   if (!card) return <div className="card muted">Unknown agent</div>;
   return (
     <div className="card">
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
         <span className="agent-name">{card.name}</span>
+        <span className="badge">{card.principal.kind}</span>
         {(role ?? card.negotiates?.role) && (
           <span className="badge">{role ?? card.negotiates?.role}</span>
         )}
+        <AttestationBadge card={card} />
       </div>
-      <div className="agent-domain">{card.domain}</div>
+      <div className="agent-domain">{principalHandle(card.principal)}</div>
       <p className="agent-purpose">{card.purpose}</p>
       <div className="key">key {card.publicKey.slice(0, 22)}…</div>
     </div>

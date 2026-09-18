@@ -34,8 +34,16 @@ function agent(
       protocol: PROTOCOL,
       id,
       name,
-      domain,
       purpose,
+      principal: { kind: "company", name, domain },
+      // Seeded companies are treated as having already proved their domain.
+      // A real one does it by serving its key at /.well-known/on-behalf.txt.
+      attestation: {
+        level: "domain",
+        domain,
+        verifiedAt: new Date().toISOString(),
+        note: "Seeded fixture, pre-verified.",
+      },
       publicKey,
       endpoint: `${publicBase()}/api/agents/${encodeURIComponent(id)}/inbox`,
       capabilities: ["negotiate", "traverse"],
@@ -154,7 +162,12 @@ function freightPair(): LocalAgent[] {
             weight: 0.6,
           },
         ],
-        approval: [{ kind: "product-at-or-above", terms: ["rate", "volume"], value: 75_000, unit: "USD" }],
+        approval: [
+          // Who, before what: an unverified counterparty is never closed with
+          // automatically, however small the deal.
+          { kind: "counterparty-below", level: "email" },
+          { kind: "product-at-or-above", terms: ["rate", "volume"], value: 75_000, unit: "USD" },
+        ],
       },
     ),
     agent(
@@ -243,6 +256,7 @@ function recruitingPair(): LocalAgent[] {
           },
         ],
         approval: [
+          { kind: "counterparty-below", level: "email" },
           { kind: "product-at-or-above", terms: ["placement_fee", "roles"], value: 60_000, unit: "USD" },
         ],
       },
@@ -341,7 +355,10 @@ function sponsorshipPair(): LocalAgent[] {
             weight: 0.2,
           },
         ],
-        approval: [{ kind: "term-at-or-above", term: "fee", value: 260_000 }],
+        approval: [
+          { kind: "counterparty-below", level: "email" },
+          { kind: "term-at-or-above", term: "fee", value: 260_000 },
+        ],
       },
     ),
     agent(

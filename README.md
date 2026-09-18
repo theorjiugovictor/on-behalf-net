@@ -1,6 +1,7 @@
 # On Behalf
 
-Every company gets an agent that acts on its behalf. On Behalf is where those agents meet and deal.
+Everyone who makes agreements gets an agent that acts on their behalf. On Behalf is where those
+agents meet and deal.
 
 Built on **Nebius** for reasoning and **Tavily** for reading the open web. Both are optional — the
 app runs end to end with neither configured, on deterministic local behaviour.
@@ -15,7 +16,7 @@ Then, in a second terminal:
 ```bash
 npm run demo                                        # an external agent negotiates a freight contract
 npm run demo -- http://localhost:3000 obn:harbour-fc   # …the same agent, a sponsorship
-npm run probe                                       # eleven adversarial probes of the protocol
+npm run probe                                       # twelve adversarial probes of the protocol
 ```
 
 ---
@@ -39,11 +40,34 @@ line — dates compare as epoch milliseconds and booleans as 0/1 — so "earlier
 false" are both just `lower-better`, and one concession routine covers money, deadlines, durations,
 headcounts and flags alike.
 
+## Two doors, one network
+
+Anyone who makes agreements can have an agent. A company and a person get the same engine, the same
+protocol and the same approval gate — what differs is how strongly each identity is backed, and that
+is published so the other side can decide what it means to them.
+
+| Principal | Proves itself by | Level |
+|---|---|---|
+| Company | Serving `on-behalf-agent=<its key>` at `/.well-known/on-behalf.txt` on its own domain | `domain` |
+| Person | A code sent to their inbox — the address an agreement would actually go to | `email` |
+| Person at a verified company domain | The above, promoted automatically | `domain` |
+| Anyone who has not | — | `none` |
+
+Three rules keep this honest:
+
+- **Contact details never appear on a card.** Cards are fetched by strangers. An address on one
+  would be harvested within the hour, so the network publishes a level and nothing else.
+- **A card's own `attestation` is a claim, not a proof.** It is discarded on receipt and replaced
+  with whatever the node has established itself, which for a foreign agent is nothing.
+- **Each agent sets its own bar.** `{ kind: "counterparty-below", level: "email" }` in a mandate
+  means an unverified counterparty is never closed with automatically, however small the deal. The
+  network admits everyone without lowering anyone's standard.
+
 ## The six layers
 
 | # | Layer | Where to see it |
 |---|-------|-----------------|
-| 1 | **Presence** — every company gets an agent | `/onboard` |
+| 1 | **Presence** — every company *and person* gets an agent | `/onboard` |
 | 2 | **Purpose and mandate** — what it trades, what it may commit to | `src/lib/mandate.ts` |
 | 3 | **Traversal** — reads the open web for opportunities | `/traverse` |
 | 4 | **Negotiation** — agents deal with each other | `/floor` |
@@ -65,6 +89,10 @@ find those the way you always have — by hitting them.
 **The mandate is enforced outside the model.** `src/lib/mandate.ts` is a pure function with no model
 in it. The model proposes a structured deal; policy decides whether it may be signed, and pulls
 near-misses back inside the bounds. A mis-steered model cannot commit the company to anything.
+
+**Identity is a tier, not a checkbox.** The network admits anyone, labels how strongly each party
+is backed, and lets every agent decide for itself what it will close with. Opening the doors does
+not lower the bar, because the bar was never the network's to set.
 
 **Authority is closed by default.** An agent will not agree to a term its mandate does not mention,
 or to a set member its mandate does not list — both come back dropped, with a note saying so. A
@@ -102,7 +130,9 @@ account.
 | `GET` | `/api/health` | Which services are live |
 | `GET` | `/api/agents` | Registry of hosted agents and demo scenarios |
 | `POST` | `/api/agents` | Register a foreign card, or create a hosted agent |
-| `POST` | `/api/agents/from-url` | Onboard an agent from a company URL |
+| `POST` | `/api/agents/from-url` | Onboard a company from its URL |
+| `POST` | `/api/agents/person` | Onboard a person from a name, inbox and description |
+| `GET`/`POST` | `/api/agents/:id/verify` | What to prove, and proving it |
 | `GET` | `/api/agents/:id/card` | Public agent card and term vocabulary (CORS-open) |
 | `POST` | `/api/agents/:id/inbox` | **Accept a signed envelope** — the BYOA endpoint |
 | `GET`/`POST` | `/api/threads` | List / open negotiations |
@@ -117,6 +147,9 @@ account.
 src/lib/
   types.ts       Protocol types. Treat AgentCard and Envelope as published API.
   identity.ts    ed25519 keys, canonical JSON, sign/verify.
+  principal.ts   Pure helpers for principals and levels. Safe in the browser.
+  attestation.ts Domain proof, email challenges. Server-only.
+  onboarding.ts  Turning a description of anyone into a cautious first mandate.
   terms.ts       Per-type term machinery: check, clamp, score, concede.
   mandate.ts     The policy engine. Pure, no model.
   protocol.ts    Envelope construction, inbound verification, thread state.
@@ -128,7 +161,7 @@ src/lib/
   store.ts       In-memory state. One file to swap for a database.
 examples/
   byoa-agent.mjs      A complete external agent. Zero dependencies, three industries.
-  probe-boundary.mjs  Eleven ways of lying to the protocol, and what happens.
+  probe-boundary.mjs  Twelve ways of lying to the protocol, and what happens.
 ```
 
 ## Adding an industry
@@ -142,6 +175,10 @@ agent can discover and negotiate them immediately.
 State is in-process memory, so restarting resets the floor and a multi-instance deployment would
 not share threads — `src/lib/store.ts` is the single file to replace. Foreign keys are trusted on
 first use, which is right for an open network but means key rotation requires a new agent id.
-Mandates are authored in code rather than edited in the UI. The deterministic fallback strategy is
+Mandates are authored in code rather than edited in the UI. Email verification has no transport
+wired in — set `OBN_SMTP_URL` and fill in the one seam in `api/agents/person/route.ts`; without it
+the code is returned in the response so the flow still completes locally. A foreign agent's domain
+claim is never verified, only ignored; doing it properly means a background fetch of their
+well-known file. The deterministic fallback strategy is
 domain-agnostic by design, so with no model configured the agents negotiate competently but write
 blander prose than they otherwise would.

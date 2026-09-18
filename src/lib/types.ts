@@ -85,18 +85,63 @@ export type PublicTermSpec = {
 // ---------------------------------------------------------------------------
 
 /**
+ * Who an agent acts for. A company and a person are both principals — the
+ * engine treats them identically, and only their attestation differs.
+ */
+export type Principal =
+  | { kind: "company"; name: string; domain: string }
+  | { kind: "person"; name: string; handle?: string };
+
+/**
+ * How strongly a principal is backed, in increasing order of recourse.
+ *
+ *  none   — self-asserted. Anyone can claim anything.
+ *  email  — controls an inbox. That inbox is where an agreement would be sent,
+ *           which is what makes it recourse rather than trivia.
+ *  domain — controls a domain, proved by serving the agent's public key at a
+ *           well-known path. Self-verifying: no third party, no secret.
+ *
+ * An address at a domain that itself holds a verified agent card counts as
+ * `domain`, so a named employee inherits their employer's standing.
+ */
+export type AttestationLevel = "none" | "email" | "domain";
+
+/**
+ * The public half of an attestation. Deliberately carries no contact details:
+ * a card is fetched by strangers, and an email address published there would be
+ * harvested within the hour. The address itself lives in private storage.
+ */
+export type Attestation = {
+  level: AttestationLevel;
+  verifiedAt?: string;
+  /** For `domain`, the domain proved. Already public, so safe to publish. */
+  domain?: string;
+  /** Free-text note, e.g. "verified via employer domain". */
+  note?: string;
+};
+
+export const ATTESTATION_RANK: Record<AttestationLevel, number> = {
+  none: 0,
+  email: 1,
+  domain: 2,
+};
+
+/**
  * The public description of an agent, and the whole BYOA contract: anyone who
  * can serve one of these at a stable URL can be negotiated with.
  *
  * `negotiates` is what makes an open network usable — it tells a stranger the
- * term vocabulary to speak, without revealing a single bound.
+ * term vocabulary to speak, without revealing a single bound. `attestation`
+ * is what makes an open network safe — it tells them how much this identity is
+ * worth, without revealing how to contact it out of band.
  */
 export type AgentCard = {
   protocol: typeof PROTOCOL;
   id: string;
   name: string;
-  domain: string;
-  /** What the company does, in its own words. Steers the agent's reasoning. */
+  principal: Principal;
+  attestation: Attestation;
+  /** What the principal does, in their own words. Steers the agent's reasoning. */
   purpose: string;
   /** base64url-encoded ed25519 public key (raw 32 bytes). */
   publicKey: string;
@@ -149,7 +194,14 @@ export type ApprovalRule =
   | { kind: "term-at-or-above"; term: string; value: number; reason?: string }
   | { kind: "term-at-or-below"; term: string; value: number; reason?: string }
   | { kind: "term-equals"; term: string; value: string | boolean; reason?: string }
-  | { kind: "product-at-or-above"; terms: string[]; value: number; unit?: string; reason?: string };
+  | { kind: "product-at-or-above"; terms: string[]; value: number; unit?: string; reason?: string }
+  /**
+   * Who you are dealing with, not what you are agreeing. This is what makes an
+   * open network safe to join: the network admits everyone, and each agent
+   * decides for itself how much attestation a counterparty needs before it will
+   * close without a human.
+   */
+  | { kind: "counterparty-below"; level: AttestationLevel; reason?: string };
 
 export type ViolationCode =
   | "subject-mismatch"
@@ -174,6 +226,14 @@ export type Violation = {
   message: string;
   /** The nearest value that would have satisfied the mandate, when one exists. */
   permitted?: TermValue;
+};
+
+/**
+ * What the policy engine knows beyond the deal itself. Kept as an explicit
+ * argument so `evaluateDeal` stays a pure function of its inputs.
+ */
+export type PolicyContext = {
+  counterparty?: AgentCard;
 };
 
 export type PolicyDecision = "within-mandate" | "needs-approval" | "violates-mandate";

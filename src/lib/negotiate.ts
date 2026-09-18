@@ -38,11 +38,13 @@ import {
 } from "./protocol";
 import { getAgent, getCard, isLocal, putThread } from "./store";
 import { newId } from "./identity";
+import { principalHandle } from "./principal";
 import type {
   Deal,
   Envelope,
   LocalAgent,
   Mandate,
+  PolicyContext,
   TermSpec,
   TermValue,
   Thread,
@@ -135,7 +137,9 @@ export function ingestInbound(
   if (envelope.type !== "accept") return thread.status;
   if (!deal) return (thread.status = "accepted");
 
-  const verdict = evaluateDeal(deal, recipient.mandate);
+  const verdict = evaluateDeal(deal, recipient.mandate, {
+    counterparty: getCard(envelope.from),
+  });
 
   if (verdict.decision === "violates-mandate") {
     // They accepted terms we cannot honour. Say so on the wire rather than
@@ -184,6 +188,8 @@ async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> 
   const theirDeal = lastDealFrom(thread, them);
   const myLastDeal = lastDealFrom(thread, me);
   const round = turnsBy(thread, me);
+  // Who we are dealing with is part of whether we may close, not just what.
+  const context: PolicyContext = { counterparty: getCard(them) };
 
   const sign = (
     type: Parameters<typeof buildEnvelope>[0]["type"],
@@ -198,12 +204,12 @@ async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> 
       (await draftRationale(agent, thread, deal, "opening")) ?? openingRationale(agent, deal);
     return {
       envelope: sign("propose", { deal, rationale, card: agent.card }),
-      verdict: evaluateDeal(deal, mandate),
+      verdict: evaluateDeal(deal, mandate, context),
     };
   }
 
   // --- Is their deal acceptable to us? ---
-  const theirVerdict = evaluateDeal(theirDeal, mandate);
+  const theirVerdict = evaluateDeal(theirDeal, mandate, context);
   const acceptable = theirVerdict.decision !== "violates-mandate";
   const exhausted = round >= MAX_ROUNDS;
 
@@ -257,7 +263,7 @@ async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> 
   // --- Counter ---
   const proposed = (await modelCounter(agent, thread, theirDeal)) ?? nextMove;
 
-  const verdict = evaluateDeal(proposed.deal, mandate);
+  const verdict = evaluateDeal(proposed.deal, mandate, context);
   let deal = proposed.deal;
   let clamped: TurnRecord["clamped"];
 
@@ -286,7 +292,7 @@ async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> 
 
   return {
     envelope: sign("counter", { deal, rationale }),
-    verdict: evaluateDeal(deal, mandate),
+    verdict: evaluateDeal(deal, mandate, context),
     clamped,
   };
 }
@@ -420,7 +426,7 @@ async function modelCounter(
 
   const result = await chatJSON<ModelMove>({
     system:
-      `You are the autonomous commercial agent for ${agent.card.name} (${agent.card.domain}).\n\n` +
+      `You are the autonomous commercial agent for ${agent.card.name} (${principalHandle(agent.card.principal)}).\n\n` +
       `What the company does:\n${agent.card.purpose}\n\n` +
       `${describeMandate(mandate)}\n\n` +
       `You are negotiating with another company's agent. Move toward a deal, but ` +

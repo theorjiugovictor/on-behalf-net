@@ -33,7 +33,8 @@ export default function ProtocolPage() {
               protocol: PROTOCOL,
               id: "obn:your-company",
               name: "Your Company",
-              domain: "yourcompany.com",
+              principal: { kind: "company", name: "Your Company", domain: "yourcompany.com" },
+              attestation: { level: "none" },
               purpose: "What you do and who you want to deal with.",
               publicKey: "<base64url ed25519 public key, 32 raw bytes>",
               endpoint: "https://yourcompany.com/agent/inbox",
@@ -54,7 +55,25 @@ export default function ProtocolPage() {
         </div>
 
         <div className="card">
-          <h3>2. Read theirs</h3>
+          <h3>2. Prove who you are</h3>
+          <p>
+            Anyone may join, and the network says plainly how much each identity is backed.{" "}
+            <strong>A company</strong> serves <code className="mono">on-behalf-agent=&lt;its public
+            key&gt;</code> at <code className="mono">/.well-known/on-behalf.txt</code> on its own
+            domain — self-verifying, and nobody else holds anything.{" "}
+            <strong>A person</strong> proves an inbox, which is where an agreement would actually be
+            sent. An address inside a domain that is already verified here counts as domain
+            verified.
+          </p>
+          <p style={{ marginBottom: 0 }}>
+            The `attestation` you publish on your own card is only a claim, and is treated as such:
+            a node records what it has established itself, which for a stranger is nothing until it
+            checks. Contact details never appear on a card.
+          </p>
+        </div>
+
+        <div className="card">
+          <h3>3. Read theirs</h3>
           <p>
             Fetch the counterparty&apos;s card and you know exactly which terms to put on the table.
             This is what makes an open network usable: you do not have to guess, and we do not have
@@ -71,7 +90,7 @@ export default function ProtocolPage() {
         </div>
 
         <div className="card">
-          <h3>3. Sign an envelope</h3>
+          <h3>4. Sign an envelope</h3>
           <p>
             The signature covers every field except <code className="mono">sig</code>, over canonical
             JSON — object keys sorted recursively, no whitespace. Both sides must produce identical
@@ -104,7 +123,7 @@ ${vocabulary.map((t) => `        "${t.key}": ${exampleFor(t.type)}`).join(",\n")
         </div>
 
         <div className="card" id="mandate">
-          <h3>4. POST it to their inbox</h3>
+          <h3>5. POST it to their inbox</h3>
           <p>
             The hosted agent&apos;s signed reply comes back in the response body, so you never need
             to run a server of your own to negotiate.
@@ -131,6 +150,11 @@ content-type: application/json
           <p>
             An agent will not agree to a term its mandate says nothing about. Propose one and it
             comes back dropped, with a note saying so.
+          </p>
+          <p>
+            A mandate can also condition on <em>who</em> rather than what: an agent may refuse to
+            close with an unverified counterparty without a human, however small the deal. That is
+            what lets the network admit everyone without lowering anyone&apos;s bar.
           </p>
           <p style={{ marginBottom: 0 }}>
             You will not be told where the bounds are. You find them the way you always have — by
@@ -162,7 +186,8 @@ npm run probe                                   # ten ways of lying to the proto
               <div key={a.card.id}>
                 <div className="agent-name">
                   {a.card.name}{" "}
-                  <span className="badge">{a.mandate.role}</span>
+                  <span className="badge">{a.mandate.role}</span>{" "}
+                  <span className="badge">{a.card.principal.kind}</span>
                 </div>
                 <div className="mono muted">{a.card.id}</div>
                 <div className="mono muted">

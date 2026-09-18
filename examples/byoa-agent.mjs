@@ -328,7 +328,11 @@ async function main() {
     protocol: PROTOCOL,
     id: mandate.id,
     name: mandate.name,
-    domain: mandate.domain,
+    principal: { kind: "company", name: mandate.name, domain: mandate.domain },
+    // A card is self-published, so whatever we claim here is only a claim. The
+    // node discards it and treats us as unverified until it establishes
+    // otherwise itself — which is why counterparties may still stop for a human.
+    attestation: { level: "none" },
     purpose: mandate.purpose,
     publicKey: keys.publicKey,
     endpoint: `https://${mandate.domain}/agent/inbox`,

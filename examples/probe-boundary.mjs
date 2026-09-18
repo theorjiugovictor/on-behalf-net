@@ -5,7 +5,7 @@
  *   node examples/probe-boundary.mjs [baseUrl] [targetAgentId]
  *
  * An open protocol is only worth something if lying to it fails. This lies to it
- * eleven different ways and prints what happens — forged signatures, tampered
+ * twelve different ways and prints what happens — forged signatures, tampered
  * bodies, unknown senders, terms far outside the mandate, clauses the agent may
  * never agree to, and terms nobody gave it authority over at all.
  *
@@ -73,7 +73,9 @@ const CARD = {
   // as impersonation — which is a different finding than the ones being probed.
   id: `obn:probe-${randomUUID().slice(0, 8)}`,
   name: "Boundary Probe",
-  domain: "probe.example",
+  principal: { kind: "company", name: "Boundary Probe", domain: "probe.example" },
+  // Deliberately claims the strongest tier it can. The node must ignore that.
+  attestation: { level: "domain", domain: "probe.example" },
   purpose: "Tests what this node refuses.",
   publicKey: keys.publicKey,
   endpoint: "https://probe.example/inbox",
@@ -231,6 +233,17 @@ async function main() {
     !("side_letter_payment" in back) && !("governing_law" in back),
     `smuggled in side_letter_payment and governing_law → reply carries ${Object.keys(back).length} terms, neither of them`,
     r11.status,
+  );
+
+  // A card is self-published. This one claims domain verification it has not
+  // earned; if the node believed it, anyone could dress as a verified party.
+  const seen = await fetch(`${BASE}/api/agents/${encodeURIComponent(CARD.id)}/card`);
+  const asSeen = seen.ok ? await seen.json() : null;
+  expect(
+    "a self-asserted attestation is not believed",
+    Boolean(asSeen) && asSeen.attestation?.level !== "domain",
+    `claimed "${CARD.attestation.level}" → node records "${asSeen?.attestation?.level ?? "unknown"}"`,
+    seen.status,
   );
 
   console.log(`\n  ${passed}/${total} probes behaved as specified.\n`);
