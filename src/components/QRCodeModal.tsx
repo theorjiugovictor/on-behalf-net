@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 
-const DEFAULT_VERCEL_URL = "https://on-behalf-net.vercel.app/onboard?participate=true";
+const DEFAULT_VERCEL_URL = "https://on-behalf-net-rosy.vercel.app/onboard?participate=true";
 
 export function QRCodeDisplay({
   url,
