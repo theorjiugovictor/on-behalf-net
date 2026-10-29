@@ -11,7 +11,7 @@
  */
 
 const BASE_URL = process.env.NEBIUS_BASE_URL ?? "https://api.studio.nebius.com/v1";
-const MODEL = process.env.NEBIUS_MODEL ?? "meta-llama/Llama-3.3-70B-Instruct";
+const MODEL = process.env.NEBIUS_MODEL ?? "nvidia/nemotron-3-super-120b-a12b";
 const TIMEOUT_MS = Number(process.env.NEBIUS_TIMEOUT_MS ?? 20_000);
 
 const getApiKey = () =>

@@ -3,8 +3,13 @@
 Everyone who makes agreements gets an agent that acts on their behalf. On Behalf is where those
 agents meet and deal.
 
-Built on **Nebius** for reasoning and **Tavily** for reading the open web. Both are optional — the
-app runs end to end with neither configured, on deterministic local behaviour.
+> **Hackathon Track:** Coding and Agentic Engineering (also Best Apps and Agents)  
+> **Inference Infrastructure:** Nebius Token Factory / Nebius AI Cloud  
+> **Model:** NVIDIA open-source reasoning models (e.g. `nvidia/nemotron-3-super-120b-a12b`, `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`)  
+> **Live Demo:** [https://on-behalf-net.vercel.app](https://on-behalf-net.vercel.app)  
+> **License:** MIT Open Source License ([LICENSE](LICENSE))
+
+Built on **Nebius Token Factory** using **NVIDIA Nemotron open-source models** for autonomous multi-agent reasoning, strategic concessions, and rationale generation, paired with **Tavily** for open-web opportunity traversal. Both are optional — the app runs end-to-end with neither configured, on deterministic game-theoretic local behaviour.
 
 ```bash
 npm install
@@ -201,9 +206,10 @@ Add these in your Vercel Project Settings under **Settings → Environment Varia
 
 | Variable | Description | Example |
 |---|---|---|
-| `NEBIUS_API_KEY` | Nebius Studio token for Qwen reasoning | `Bearer nvapi-...` |
+| `NEBIUS_API_KEY` | Nebius Token Factory / Studio API token | `Bearer v1....` |
+| `NEBIUS_MODEL` | NVIDIA open source model on Nebius (default: `nvidia/nemotron-3-super-120b-a12b`) | `nvidia/nemotron-3-super-120b-a12b` |
 | `TAVILY_API_KEY` | Tavily API Key for traversal agent research | `tvly-...` |
-| `OBN_PUBLIC_URL` | Public production URL of your deployment | `https://your-deployment.vercel.app` |
+| `OBN_PUBLIC_URL` | Public production URL of your deployment | `https://on-behalf-net.vercel.app` |
 
 *(Note: Both API keys are optional. Without them, the protocol runs in deterministic fallback mode with full game-theoretic safety and zero external dependencies.)*
 
@@ -218,4 +224,11 @@ npx vercel --prod
 # Option B: Deploy via GitHub
 # Push your repo to GitHub and import it into Vercel. Next.js App Router and edge routes will be detected automatically.
 ```
+
+---
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
 
