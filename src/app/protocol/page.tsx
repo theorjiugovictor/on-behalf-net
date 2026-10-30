@@ -172,7 +172,7 @@ content-type: application/json
           </p>
           <pre>{`npm run demo                                    # against the default target
 npm run demo -- http://localhost:3000 ${agents[2]?.card.id ?? "obn:lantern-talent"}
-npm run probe                                   # ten ways of lying to the protocol`}</pre>
+npm run probe                                   # sixteen ways of lying to the protocol`}</pre>
           <p style={{ marginBottom: 0 }}>
             Whatever it agrees to shows up on <Link href="/floor">the floor</Link> like any other
             negotiation, tagged as an external agent.

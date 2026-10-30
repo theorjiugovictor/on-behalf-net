@@ -5,7 +5,7 @@
  *   node examples/probe-boundary.mjs [baseUrl] [targetAgentId]
  *
  * An open protocol is only worth something if lying to it fails. This lies to it
- * twelve different ways and prints what happens — forged signatures, tampered
+ * sixteen different ways and prints what happens — forged signatures, tampered
  * bodies, unknown senders, terms far outside the mandate, clauses the agent may
  * never agree to, and terms nobody gave it authority over at all.
  *

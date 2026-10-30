@@ -13,8 +13,8 @@
 import { NextResponse } from "next/server";
 import { agentIdForDomain, generateKeyPair } from "@/lib/identity";
 import { extract } from "@/lib/tavily";
-import { draftFromPage, starterMandate, titleFromDomain } from "@/lib/onboarding";
-import { getCard, putAgent } from "@/lib/store";
+import { buildCounterpartyFor, draftFromPage, starterMandate, titleFromDomain } from "@/lib/onboarding";
+import { getCard, putAgent, putScenario } from "@/lib/store";
 import { publicSpec } from "@/lib/terms";
 import { PROTOCOL, type LocalAgent } from "@/lib/types";
 
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
   }
 
   const pageText = await extract(url.toString());
-  const draft = pageText ? await draftFromPage(domain, pageText) : null;
+  const draft = await draftFromPage(domain, pageText);
 
   const name = draft?.name?.trim() || titleFromDomain(domain);
   const purpose =
@@ -81,11 +81,17 @@ export async function POST(req: Request) {
 
   putAgent(agent);
 
+  const { counterparty, scenario } = buildCounterpartyFor(agent, origin);
+  putAgent(counterparty);
+  putScenario(scenario);
+
   return NextResponse.json(
     {
       created: true,
       card: agent.card,
       mandate: agent.mandate,
+      counterparty: counterparty.card,
+      scenarioId: scenario.id,
       drafted: Boolean(draft),
       readSite: Boolean(pageText),
       notice:

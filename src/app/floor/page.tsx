@@ -48,25 +48,69 @@ export default function FloorPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    fetch("/api/agents")
-      .then((r) => r.json())
-      .then((d) => {
-        setAgents(d.agents ?? []);
-        setScenarios(d.scenarios ?? []);
-        if (d.scenarios?.[0]) setPicked(d.scenarios[0].id);
-      })
-      .catch(() => setError("Could not load agents."));
-  }, []);
-
-  const scenario = scenarios.find((s) => s.id === picked) ?? null;
-  const cardFor = (id?: string) => agents.find((a) => a.id === id) ?? null;
+  const autoOpenedRef = useRef(false);
 
   const load = useCallback(async (id: string) => {
     const res = await fetch(`/api/threads/${id}`, { cache: "no-store" });
     if (res.ok) setData(await res.json());
   }, []);
+
+  useEffect(() => {
+    fetch("/api/agents", { cache: "no-store" })
+      .then((r) => r.json())
+      .then(async (d) => {
+        const loadedAgents = d.agents ?? [];
+        const loadedScenarios: Scenario[] = d.scenarios ?? [];
+        setAgents(loadedAgents);
+        setScenarios(loadedScenarios);
+
+        const params =
+          typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+        const targetAgent = params?.get("agent");
+        const shouldAutoOpen = params?.get("auto") === "1";
+
+        const matchedScenario = targetAgent
+          ? loadedScenarios.find((s) => s.opens === targetAgent || s.responds === targetAgent)
+          : undefined;
+
+        const chosen = matchedScenario ?? loadedScenarios[0];
+        if (chosen) {
+          setPicked(chosen.id);
+          if (targetAgent && chosen.responds === targetAgent) {
+            setMySide("b");
+          } else {
+            setMySide("a");
+          }
+
+          if (shouldAutoOpen && matchedScenario && !autoOpenedRef.current) {
+            autoOpenedRef.current = true;
+            setBusy(true);
+            try {
+              const res = await fetch("/api/threads", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  a: chosen.opens,
+                  b: chosen.responds,
+                  subject: chosen.title,
+                }),
+              });
+              const json = await res.json();
+              if (res.ok && json.thread?.id) {
+                await load(json.thread.id);
+                setAuto(true);
+              }
+            } finally {
+              setBusy(false);
+            }
+          }
+        }
+      })
+      .catch(() => setError("Could not load agents."));
+  }, [load]);
+
+  const scenario = scenarios.find((s) => s.id === picked) ?? null;
+  const cardFor = (id?: string) => agents.find((a) => a.id === id) ?? null;
 
   const openFloor = useCallback(async () => {
     if (!scenario) return;
@@ -316,7 +360,7 @@ export default function FloorPage() {
           {thread.status === "accepted" && thread.settledDeal && (
             <div className="banner" style={{ borderColor: "var(--ok)", background: "var(--ok-dim)" }}>
               <h3 style={{ color: "var(--ok)" }}>Deal closed</h3>
-              <p style={{ color: "#a7e8c0", marginBottom: 0 }}>
+              <p style={{ color: "var(--text)", marginBottom: 0 }}>
                 Every step above is signed and replayable.
               </p>
             </div>

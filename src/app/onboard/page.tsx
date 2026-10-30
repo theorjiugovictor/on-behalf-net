@@ -24,6 +24,8 @@ type HostedAgent = AgentCard & {
 type Created = {
   card: AgentCard;
   mandate: Mandate;
+  counterparty?: AgentCard;
+  scenarioId?: string;
   notice: string;
   readSite?: boolean;
   drafted?: boolean;
@@ -278,7 +280,11 @@ export default function OnboardPage() {
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <Link href="/floor" className="btn btn-primary" style={{ fontSize: 12.5 }}>
+                      <Link
+                        href={`/floor?agent=${encodeURIComponent(agent.id)}&auto=1`}
+                        className="btn btn-primary"
+                        style={{ fontSize: 12.5 }}
+                      >
                         Take to Trading Floor →
                       </Link>
                       <a
@@ -495,8 +501,11 @@ function Result({
     <div className="stack">
       <div className="banner" style={{ borderColor: "var(--ok)", background: "var(--ok-dim)" }}>
         <h3 style={{ color: "var(--ok)" }}>{created.card.name} is on the network!</h3>
-        <p style={{ color: "#a7e8c0", marginBottom: 0 }}>
-          It has its own Ed25519 keypair, a mathematically backed mandate, and an active endpoint.
+        <p style={{ color: "var(--text)", marginBottom: 0 }}>
+          It has its own Ed25519 keypair, a mathematically backed mandate, and an active endpoint
+          {created.counterparty
+            ? ` — and we automatically matched it against ${created.counterparty.name} on the Trading Floor.`
+            : "."}
         </p>
       </div>
 
@@ -564,8 +573,11 @@ function Result({
         </p>
         <pre>{JSON.stringify(created.mandate, null, 2)}</pre>
         <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <Link href="/floor" className="btn btn-primary">
-            Take Agent to Trading Floor →
+          <Link
+            href={`/floor?agent=${encodeURIComponent(created.card.id)}&auto=1`}
+            className="btn btn-primary"
+          >
+            Take Agent to Trading Floor (Start Deal) →
           </Link>
           <button type="button" className="btn" onClick={onViewFleet}>
             View in My Agents Fleet

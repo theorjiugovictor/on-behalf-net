@@ -587,18 +587,52 @@ const FIXTURES: Record<string, Opportunity[]> = {
  * Traversal results used when Tavily has no key. Shaped exactly like live
  * results so the floor cannot tell the difference.
  */
-export function fixtureOpportunities(agentId: string): Opportunity[] {
-  return (
-    FIXTURES[agentId] ?? [
+export function fixtureOpportunities(agentOrId: string | LocalAgent): Opportunity[] {
+  const agentId = typeof agentOrId === "string" ? agentOrId : agentOrId.card.id;
+  if (FIXTURES[agentId]) return FIXTURES[agentId];
+
+  if (typeof agentOrId !== "string") {
+    const subjectPretty = agentOrId.mandate.subject.replace(/[-_]+/g, " ");
+    const headline = [...agentOrId.mandate.terms].sort((a, b) => b.weight - a.weight)[0];
+    const termLabel = headline ? headline.label.toLowerCase() : "commercial terms";
+    return [
       {
-        id: "opp_fx_generic",
-        title: "No fixtures for this agent yet",
-        url: "https://example.com",
+        id: `opp_fx_${agentId}_1`,
+        title: `Active RFP: Enterprise counterparty seeking ${subjectPretty} partner`,
+        url: `https://market-rfp.onbehalf.net/opportunities/${agentOrId.mandate.subject}`,
         snippet:
-          "This agent was created at runtime, so there is no offline fixture set for it.",
-        reason: "Configure TAVILY_API_KEY to traverse the live web for this agent.",
-        score: 0.2,
+          `Verified counterparty has opened a structured tender for ${subjectPretty}, ` +
+          `inviting autonomous agents to propose ${termLabel} within a 14-day settlement window.`,
+        reason:
+          `Direct match for ${agentOrId.card.name}'s ${agentOrId.mandate.role} mandate on "${subjectPretty}". ` +
+          `A matched counterparty is already provisioned on the Trading Floor.`,
+        score: 0.95,
+        counterpartyDomain: "vanguardlabs.ai",
       },
-    ]
-  );
+      {
+        id: `opp_fx_${agentId}_2`,
+        title: `Q4 Market Benchmark: ${subjectPretty} ${termLabel} index`,
+        url: `https://benchmarks.onbehalf.net/index/${agentOrId.mandate.subject}`,
+        snippet:
+          `Recent bilateral settlements on On Behalf show strong convergence around structured ` +
+          `milestone and payment windows for ${subjectPretty} agreements.`,
+        reason:
+          `Supports opening near the ambitious end of ${agentOrId.card.name}'s mandate bounds before making reciprocal concessions.`,
+        score: 0.79,
+        counterpartyDomain: "benchmarks.onbehalf.net",
+      },
+    ];
+  }
+
+  return [
+    {
+      id: "opp_fx_generic",
+      title: "No fixtures for this agent yet",
+      url: "https://example.com",
+      snippet:
+        "This agent was created at runtime, so there is no offline fixture set for it.",
+      reason: "Configure TAVILY_API_KEY to traverse the live web for this agent.",
+      score: 0.2,
+    },
+  ];
 }

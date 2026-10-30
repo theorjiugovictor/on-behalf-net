@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="512" height="512" fill="none">
+  <title>On Behalf — Reciprocal Equilibrium Mark</title>
+  <desc>Two autonomous agent nodes converging and interlocking across a central mandate boundary.</desc>
+
+  <!-- Obsidian Protocol Container -->
+  <rect width="120" height="120" rx="26" fill="#09090B" />
+  <rect x="1.5" y="1.5" width="117" height="117" rx="24.5" stroke="#27272A" stroke-width="1.5" />
+
+  <!-- Outer Mandate Bounds (Subtle Tactical Frame) -->
+  <path d="M24 38V28C24 25.7909 25.7909 24 28 24H38" stroke="#3F3F46" stroke-width="2.5" stroke-linecap="round" />
+  <path d="M96 82V92C96 94.2091 94.2091 96 92 96H82" stroke="#3F3F46" stroke-width="2.5" stroke-linecap="round" />
+
+  <!-- Diagonal Mandate Axis (Equilibrium Seam) -->
+  <line x1="28" y1="92" x2="92" y2="28" stroke="#27272A" stroke-width="2" stroke-dasharray="3 4" />
+
+  <!-- Principal A (Upper-Left Agent): Converging Bracket & Concession Vector -->
+  <path
+    d="M30 66V38C30 33.5817 33.5817 30 38 30H66L54 42H42V54L30 66Z"
+    fill="#FFFFFF"
+  />
+  <path
+    d="M46 46L56 56"
+    stroke="#FFFFFF"
+    stroke-width="4.5"
+    stroke-linecap="round"
+  />
+  <circle cx="42" cy="42" r="4.5" fill="#09090B" />
+
+  <!-- Principal B (Lower-Right Agent): Reciprocal Bracket & Concession Vector -->
+  <path
+    d="M90 54V82C90 86.4183 86.4183 90 82 90H54L66 78H78V66L90 54Z"
+    fill="#FFFFFF"
+  />
+  <path
+    d="M74 74L64 64"
+    stroke="#FFFFFF"
+    stroke-width="4.5"
+    stroke-linecap="round"
+  />
+  <circle cx="78" cy="78" r="4.5" fill="#09090B" />
+
+  <!-- Interlocking Mandate Gate (Central Settlement Ring) -->
+  <rect
+    x="60"
+    y="45.8579"
+    width="20"
+    height="20"
+    rx="4"
+    transform="rotate(45 60 45.8579)"
+    fill="#09090B"
+    stroke="#FFFFFF"
+    stroke-width="4"
+  />
+
+  <!-- Verified Settlement Node (Consensus Point) -->
+  <circle cx="60" cy="60" r="4.5" fill="#16A34A" />
+</svg>
+

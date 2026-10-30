@@ -45,7 +45,7 @@ export async function traverse(agent: LocalAgent, limit = 6): Promise<TraversalR
 
   if (hits.length === 0) {
     return {
-      opportunities: fixtureOpportunities(agent.card.id).slice(0, limit),
+      opportunities: fixtureOpportunities(agent).slice(0, limit),
       queries,
       source: "fixture",
     };
