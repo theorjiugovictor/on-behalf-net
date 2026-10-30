@@ -596,7 +596,7 @@ export async function dispatchToOpportunities(
     const thread = openThread(primary.card.id, counterparty.card.id, scenario.title);
     for (let stepIdx = 0; stepIdx < 16; stepIdx++) {
       if (thread.status !== "open") break;
-      const turn = await advance(thread);
+      const turn = await advance(thread, { fast: true });
       if (!turn) break;
     }
 

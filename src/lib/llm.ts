@@ -24,7 +24,7 @@ function resolveModel(): string {
 }
 
 const MODEL = resolveModel();
-const TIMEOUT_MS = Number(process.env.NEBIUS_TIMEOUT_MS ?? 20_000);
+const TIMEOUT_MS = Number(process.env.NEBIUS_TIMEOUT_MS ?? 6_500);
 
 const getApiKey = () =>
   process.env.NEBIUS_API_KEY || process.env.NEBIUM_TOKEN_FACTORY_API_KEY;

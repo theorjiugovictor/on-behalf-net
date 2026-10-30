@@ -81,14 +81,17 @@ export function openThread(a: string, b: string, subject: string): Thread {
  * Returns the turn taken, or null when the thread is waiting on a foreign agent,
  * a human, or is already settled.
  */
-export async function advance(thread: Thread): Promise<TurnRecord | null> {
+export async function advance(
+  thread: Thread,
+  opts?: { fast?: boolean },
+): Promise<TurnRecord | null> {
   const actor = whoseTurn(thread);
   if (!actor || !isLocal(actor)) return null;
 
   const agent = getAgent(actor);
   if (!agent) return null;
 
-  const turn = await takeTurn(thread, agent);
+  const turn = await takeTurn(thread, agent, opts);
   thread.turns.push(turn);
   applyTerminalState(thread, turn);
   putThread(thread);
@@ -182,13 +185,18 @@ export function ingestInbound(
 // One agent's move
 // ---------------------------------------------------------------------------
 
-async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> {
+async function takeTurn(
+  thread: Thread,
+  agent: LocalAgent,
+  opts?: { fast?: boolean },
+): Promise<TurnRecord> {
   const me = agent.card.id;
   const them = counterpartOf(thread, me);
   const mandate = agent.mandate;
   const theirDeal = lastDealFrom(thread, them);
   const myLastDeal = lastDealFrom(thread, me);
   const round = turnsBy(thread, me);
+  const useFast = Boolean(opts?.fast);
   // Who we are dealing with is part of whether we may close, not just what.
   const context: PolicyContext = { counterparty: getCard(them) };
 
@@ -201,8 +209,9 @@ async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> 
   // --- Opening move ---
   if (!theirDeal) {
     const deal = openingDeal(mandate);
-    const rationale =
-      (await draftRationale(agent, thread, deal, "opening")) ?? openingRationale(agent, deal);
+    const rationale = useFast
+      ? openingRationale(agent, deal)
+      : ((await draftRationale(agent, thread, deal, "opening")) ?? openingRationale(agent, deal));
     return {
       envelope: sign("propose", { deal, rationale, card: agent.card }),
       verdict: evaluateDeal(deal, mandate, context),
@@ -241,9 +250,10 @@ async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> 
     return {
       envelope: sign("accept", {
         deal: theirDeal,
-        rationale:
-          (await draftRationale(agent, thread, theirDeal, "accept")) ??
-          `Agreed on ${summariseDeal(theirDeal, mandate)}. That sits inside my mandate and I can close it.`,
+        rationale: useFast
+          ? `Agreed on ${summariseDeal(theirDeal, mandate)}. That sits inside my mandate and I can close it.`
+          : ((await draftRationale(agent, thread, theirDeal, "accept")) ??
+            `Agreed on ${summariseDeal(theirDeal, mandate)}. That sits inside my mandate and I can close it.`),
       }),
       verdict: theirVerdict,
     };
@@ -276,9 +286,10 @@ async function takeTurn(thread: Thread, agent: LocalAgent): Promise<TurnRecord> 
     }
   }
 
-  const proposed = isStonewalled
-    ? nextMove
-    : ((await modelCounter(agent, thread, theirDeal)) ?? nextMove);
+  const proposed =
+    isStonewalled || useFast
+      ? nextMove
+      : ((await modelCounter(agent, thread, theirDeal)) ?? nextMove);
 
   const verdict = evaluateDeal(proposed.deal, mandate, context);
   let deal = proposed.deal;

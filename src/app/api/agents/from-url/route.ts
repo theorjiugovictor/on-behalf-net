@@ -11,7 +11,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { agentIdForDomain, generateKeyPair } from "@/lib/identity";
+import { agentIdForDomain, generateKeyPair, newId } from "@/lib/identity";
 import { extract } from "@/lib/tavily";
 import { draftFromPage, launchAutonomousDeal, starterMandate, titleFromDomain } from "@/lib/onboarding";
 import { getCard, putAgent } from "@/lib/store";
@@ -39,10 +39,10 @@ export async function POST(req: Request) {
   }
 
   const domain = url.hostname.replace(/^www\./, "");
-  const id = agentIdForDomain(domain);
-  if (getCard(id)) {
-    return NextResponse.json({ error: `An agent for ${domain} already exists.` }, { status: 409 });
-  }
+  const baseId = agentIdForDomain(domain);
+  const id = getCard(baseId)
+    ? `${baseId}-${newId("").replace("_", "").slice(0, 4)}`
+    : baseId;
 
   const pageText = await extract(url.toString());
   const draft = await draftFromPage(domain, pageText);

@@ -8,7 +8,7 @@
  */
 
 const BASE_URL = process.env.TAVILY_BASE_URL ?? "https://api.tavily.com";
-const TIMEOUT_MS = Number(process.env.TAVILY_TIMEOUT_MS ?? 20_000);
+const TIMEOUT_MS = Number(process.env.TAVILY_TIMEOUT_MS ?? 4_500);
 
 export function searchConfigured(): boolean {
   return Boolean(process.env.TAVILY_API_KEY);
@@ -57,7 +57,7 @@ async function post<T>(path: string, body: unknown): Promise<T | null> {
 export async function search(query: string, maxResults = 8): Promise<SearchHit[] | null> {
   const data = await post<{ results?: SearchHit[] }>("/search", {
     query,
-    search_depth: "advanced",
+    search_depth: "basic",
     max_results: maxResults,
   });
   return data?.results ?? null;
