@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AgentPanel, Turn, type TermDict } from "@/components/ui";
+import { saveClientBundle, syncClientBundleToServer } from "@/lib/client-sync";
 import type { AgentCard, Mandate, PublicTermSpec, Thread } from "@/lib/types";
 
 type Scenario = {
@@ -132,6 +133,7 @@ export default function FloorPage() {
         });
         const json = await res.json();
         if (res.ok && json.runs?.length) {
+          if (json.syncBundle) saveClientBundle(json.syncBundle);
           await fetchThreadsList();
           await loadThread(json.runs[0].threadId);
         }
@@ -146,12 +148,16 @@ export default function FloorPage() {
     if (initializedRef.current) return;
     initializedRef.current = true;
 
-    Promise.all([
-      fetch("/api/agents", { cache: "no-store" }).then((r) => r.json()),
-      fetchThreadsList(),
-    ])
+    syncClientBundleToServer()
+      .then(() =>
+        Promise.all([
+          fetch("/api/agents", { cache: "no-store" }).then((r) => r.json()),
+          fetchThreadsList(),
+        ]),
+      )
       .then(async ([agentData, allThreads]) => {
-        const loadedAgents = agentData.agents ?? [];
+        const loadedAgents: (AgentCard & { mandate?: Mandate; role?: string })[] =
+          agentData.agents ?? [];
         const loadedScenarios: Scenario[] = agentData.scenarios ?? [];
         setAgents(loadedAgents);
         setScenarios(loadedScenarios);
@@ -161,10 +167,19 @@ export default function FloorPage() {
         const targetAgent = params?.get("agent");
         const targetThread = params?.get("thread");
 
+        let mySavedIds: string[] = [];
+        try {
+          mySavedIds = JSON.parse(localStorage.getItem("obn_my_agents") || "[]");
+        } catch {}
+        const latestMyAgentId =
+          mySavedIds.length > 0 ? mySavedIds[mySavedIds.length - 1] : undefined;
+
         const initialAgentId =
-          targetAgent && loadedAgents.some((a: AgentCard) => a.id === targetAgent)
+          targetAgent && loadedAgents.some((a) => a.id === targetAgent)
             ? targetAgent
-            : loadedAgents[0]?.id ?? "";
+            : latestMyAgentId && loadedAgents.some((a) => a.id === latestMyAgentId)
+              ? latestMyAgentId
+              : loadedAgents[0]?.id ?? "";
 
         setSelectedAgentId(initialAgentId);
 
@@ -298,8 +313,8 @@ export default function FloorPage() {
     ? (data?.mandates?.[rightId] ?? cardFor(rightId)?.mandate ?? null)
     : null;
 
-  // Primary agents (hide auto-generated one-off counterparties from the main "Your Agent" selector to keep it clean)
-  const primaryAgents = agents.filter((a, idx) => idx < 6 || !a.id.match(/-[a-z0-9]{4}$/));
+  // Primary agents: include all user-created and seeded agents, excluding only auto-generated `obn:cp-...` counterparties
+  const primaryAgents = agents.filter((a) => !a.id.startsWith("obn:cp-"));
 
   return (
     <main>

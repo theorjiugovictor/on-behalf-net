@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { saveClientBundle, syncClientBundleToServer } from "@/lib/client-sync";
 import type { AgentCard, Opportunity } from "@/lib/types";
 
 type Result = {
@@ -67,6 +68,7 @@ export default function TraversePage() {
       });
       if (res.ok) {
         const json = await res.json();
+        if (json.syncBundle) saveClientBundle(json.syncBundle);
         const sorted = [...(json.runs ?? [])].sort(
           (a: DispatchedRun, b: DispatchedRun) => b.utility - a.utility,
         );
@@ -78,14 +80,25 @@ export default function TraversePage() {
   };
 
   useEffect(() => {
-    fetch("/api/agents", { cache: "no-store" })
+    syncClientBundleToServer()
+      .then(() => fetch("/api/agents", { cache: "no-store" }))
       .then((r) => r.json())
       .then((d) => {
-        const list = d.agents ?? [];
+        const list = (d.agents ?? []).filter((a: AgentCard) => !a.id.startsWith("obn:cp-"));
         setAgents(list);
-        if (list[0]) {
-          setSelected(list[0].id);
-          runFor(list[0].id);
+        let mySavedIds: string[] = [];
+        try {
+          mySavedIds = JSON.parse(localStorage.getItem("obn_my_agents") || "[]");
+        } catch {}
+        const latestMyAgentId =
+          mySavedIds.length > 0 ? mySavedIds[mySavedIds.length - 1] : undefined;
+        const initialId =
+          latestMyAgentId && list.some((a: AgentCard) => a.id === latestMyAgentId)
+            ? latestMyAgentId
+            : list[0]?.id;
+        if (initialId) {
+          setSelected(initialId);
+          runFor(initialId);
         }
       });
   }, [runFor]);

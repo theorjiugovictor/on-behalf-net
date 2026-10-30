@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AgentPanel } from "@/components/ui";
 import { QRCodeDisplay } from "@/components/QRCodeModal";
+import { saveClientBundle, syncClientBundleToServer } from "@/lib/client-sync";
 import type { AgentCard, Mandate } from "@/lib/types";
 
 type HostedAgent = AgentCard & {
@@ -94,10 +95,13 @@ export default function OnboardPage() {
 
   const loadAgents = useCallback(async () => {
     try {
+      await syncClientBundleToServer();
       const res = await fetch("/api/agents", { cache: "no-store" });
       if (res.ok) {
         const json = await res.json();
-        setAgents(json.agents ?? []);
+        const all: HostedAgent[] = json.agents ?? [];
+        // Hide auto-generated counterparty helper nodes (`obn:cp-...`) from the primary fleet list
+        setAgents(all.filter((a) => !a.id.startsWith("obn:cp-")));
       }
     } catch {
       // ignore
@@ -151,6 +155,9 @@ export default function OnboardPage() {
       if (!res.ok) {
         setError(json.error ?? "Could not create the agent.");
         return;
+      }
+      if (json.syncBundle) {
+        saveClientBundle(json.syncBundle);
       }
       setCreated(json);
       saveMyAgentId(json.card.id);

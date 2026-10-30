@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { DealTerms } from "@/components/ui";
+import { saveClientBundle, syncClientBundleToServer } from "@/lib/client-sync";
 import type { AgentCard, PublicTermSpec, Thread } from "@/lib/types";
 
 type Row = { id: string; subject: string; status: string; a: string; b: string };
@@ -30,6 +31,7 @@ export default function InboxPage() {
   const [simulating, setSimulating] = useState(false);
 
   const load = useCallback(async () => {
+    await syncClientBundleToServer();
     const res = await fetch("/api/threads", { cache: "no-store" });
     const { threads: rows } = (await res.json()) as { threads: Row[] };
     const relevant = rows.filter(
@@ -79,11 +81,15 @@ export default function InboxPage() {
           : "";
       const combinedNote = [verificationPrefix, userNote].filter(Boolean).join(" — ");
 
-      await fetch(`/api/threads/${id}/approve`, {
+      const res = await fetch(`/api/threads/${id}/approve`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ approve, note: combinedNote }),
       });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.thread) saveClientBundle({ threads: [json.thread] });
+      }
       await load();
     } finally {
       setBusy(null);
@@ -93,13 +99,17 @@ export default function InboxPage() {
   const simulateAutonomousDeal = async () => {
     setSimulating(true);
     try {
-      await fetch("/api/traverse", {
+      const res = await fetch("/api/traverse", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           agentId: "obn:meridian-coldchain",
         }),
       });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.syncBundle) saveClientBundle(json.syncBundle);
+      }
       await load();
     } finally {
       setSimulating(false);

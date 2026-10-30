@@ -58,6 +58,11 @@ export async function POST(req: Request) {
   return NextResponse.json({
     agent: { id: agent.card.id, name: agent.card.name },
     dispatchedCount: runs.length,
+    syncBundle: {
+      agents: [agent, ...runs.map((r) => r.counterparty)],
+      scenarios: runs.map((r) => r.scenario),
+      threads: runs.map((r) => r.thread),
+    },
     runs: runs.map((r) => ({
       counterpartyId: r.counterparty.card.id,
       counterpartyName: r.counterparty.card.name,

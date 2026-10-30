@@ -103,6 +103,11 @@ export async function POST(req: Request) {
         turnsCount: r.thread.turns.length,
         utility: r.thread.pendingApproval?.verdict.utility ?? 0.75,
       })),
+      syncBundle: {
+        agents: [agent, ...allRuns.map((r) => r.counterparty)],
+        scenarios: allRuns.map((r) => r.scenario),
+        threads: allRuns.map((r) => r.thread),
+      },
       drafted: Boolean(draft),
       readSite: Boolean(pageText),
       notice:

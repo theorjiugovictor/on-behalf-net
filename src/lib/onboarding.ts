@@ -466,7 +466,7 @@ export function buildCounterpartyFor(
   const domain = opts?.domain || baseInfo.domain;
   const name = opts?.name || (opts?.domain ? titleFromDomain(opts.domain) : baseInfo.name);
   const slug = domain.split(".")[0].replace(/[^a-z0-9-]+/gi, "-").toLowerCase();
-  const cpId = `obn:${slug}-${newId("").replace("_", "").slice(0, 4)}`;
+  const cpId = `obn:cp-${slug}-${newId("").replace("_", "").slice(0, 4)}`;
   const { publicKey, privateKey } = generateKeyPair();
 
   const cpTerms: TermSpec[] = m.terms.map((spec) => mirrorTermSpec(spec, stanceIndex));
