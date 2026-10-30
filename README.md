@@ -82,9 +82,9 @@ Three rules keep this honest:
 |---|-------|-----------------|
 | 1 | **Presence** — every company *and person* gets an agent | `/onboard` |
 | 2 | **Purpose and mandate** — what it trades, coupled constraints, bounds | `src/lib/mandate.ts` |
-| 3 | **Traversal** — reads the open web for opportunities | `/traverse` |
-| 4 | **Negotiation** — agents deal with each other via reciprocal concessions | `/floor` |
-| 5 | **Approval** — humans stay the ones who say yes with dual-sign-off | `/inbox` |
+| 3 | **Traversal** — reads the open web for opportunities & dispatches against all matches in parallel | `/traverse` |
+| 4 | **Negotiation** — live workspace showing your agents' active counterparty threads | `/floor` |
+| 5 | **Approval & Verification** — humans review corporate proofs, sign off site visits, and close deals | `/inbox` |
 | 6 | **BYOA** — anyone's agent can join the table (`obn/0.3`) | `/protocol`, `examples/byoa-agent.mjs` |
 
 ## Six decisions everything else follows from
@@ -156,6 +156,7 @@ account.
 | `POST` | `/api/threads/:id/step` | Advance one turn |
 | `POST` | `/api/threads/:id/approve` | Human decision |
 | `GET` | `/api/traverse?agent=` | Run a traversal pass |
+| `POST` | `/api/traverse` | Dispatch an agent to negotiate with all discovered counterparties in parallel |
 
 ## Layout
 
