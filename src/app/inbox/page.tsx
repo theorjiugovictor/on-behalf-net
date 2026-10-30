@@ -41,7 +41,14 @@ export default function InboxPage() {
         return (await d.json()) as DetailedThread;
       }),
     );
-    setPending(detailed.filter((d) => d.thread.status === "awaiting-approval"));
+    const pendingItems = detailed
+      .filter((d) => d.thread.status === "awaiting-approval")
+      .sort(
+        (a, b) =>
+          (b.thread.pendingApproval?.verdict.utility ?? 0) -
+          (a.thread.pendingApproval?.verdict.utility ?? 0),
+      );
+    setPending(pendingItems);
     setSettled(
       detailed.filter((d) => d.thread.status === "accepted" || d.thread.status === "rejected"),
     );
@@ -86,24 +93,13 @@ export default function InboxPage() {
   const simulateAutonomousDeal = async () => {
     setSimulating(true);
     try {
-      const openRes = await fetch("/api/threads", {
+      await fetch("/api/traverse", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          a: "obn:meridian-coldchain",
-          b: "obn:kairo-foods",
-          subject: "Refrigerated freight",
+          agentId: "obn:meridian-coldchain",
         }),
       });
-      const openJson = await openRes.json();
-      const threadId = openJson.thread?.id;
-      if (threadId) {
-        for (let i = 0; i < 14; i++) {
-          const stepRes = await fetch(`/api/threads/${threadId}/step`, { method: "POST" });
-          const stepJson = await stepRes.json();
-          if (!stepJson.advanced || stepJson.status !== "open") break;
-        }
-      }
       await load();
     } finally {
       setSimulating(false);
@@ -182,8 +178,8 @@ export default function InboxPage() {
             disabled={simulating}
           >
             {simulating
-              ? "Agents negotiating autonomously…"
-              : "Auto-negotiate a sample deal"}
+              ? "Negotiating with multiple counterparties…"
+              : "Dispatch sample multi-counterparty tender"}
           </button>
         </div>
 
@@ -213,13 +209,14 @@ export default function InboxPage() {
           </div>
         ) : (
           <div className="stack">
-            {pending.map(({ thread: t, participants, terms }) => {
+            {pending.map(({ thread: t, participants, terms }, idx) => {
               const p = t.pendingApproval!;
               const escalatedBy = participants[p.agentId]?.name ?? p.agentId;
               const otherId = t.a === p.agentId ? t.b : t.a;
               const counterpartCard = participants[otherId];
               const counterpartName = counterpartCard?.name ?? otherId;
               const utilityPct = Math.round(p.verdict.utility * 100);
+              const isBestOffer = pending.length > 1 && idx === 0;
 
               const clausesList = Array.isArray(p.deal.terms.clauses)
                 ? (p.deal.terms.clauses as string[])
@@ -237,6 +234,9 @@ export default function InboxPage() {
                 >
                   <div className="turn-head">
                     <span className="turn-who">{t.subject}</span>
+                    {isBestOffer && (
+                      <span className="badge badge-ok">Best Offer ({utilityPct}% utility)</span>
+                    )}
                     <span className="badge badge-warn">awaiting human sign-off</span>
                     <span className="badge">
                       {escalatedBy} vs {counterpartName}

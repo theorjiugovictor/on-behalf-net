@@ -30,6 +30,12 @@ type Created = {
   threadStatus?: string;
   turnsCount?: number;
   settledDeal?: { subject: string; terms: Record<string, unknown> };
+  runs?: Array<{
+    counterpartyName: string;
+    threadId: string;
+    turnsCount: number;
+    utility: number;
+  }>;
   notice: string;
   readSite?: boolean;
   drafted?: boolean;
@@ -559,26 +565,63 @@ function Result({
     <div className="stack">
       <div className="banner" style={{ borderColor: "var(--ok)", background: "var(--ok-dim)" }}>
         <h3 style={{ color: "var(--ok)" }}>
-          {created.card.name} is live and has negotiated a deal on your behalf
+          {created.card.name} is live and negotiated with {created.runs?.length ?? 1} counterparties
         </h3>
         <p style={{ color: "var(--text)", marginBottom: 12 }}>
-          Your agent matched with <strong>{created.counterparty?.name ?? "a counterparty"}</strong>,
-          exchanged <strong>{created.turnsCount ?? "multiple"} Ed25519-signed turns</strong> inside
-          your mandate, verified required clauses, and parked the agreement in your Inbox for final
-          human sign-off.
+          Your agent traversed the market, negotiated in parallel with{" "}
+          <strong>{created.runs?.length ?? 1} competing counterparties</strong> inside your mandate,
+          and parked the converged deals in your Inbox ranked by utility fit so you can approve the
+          best offer.
         </p>
+
+        {created.runs && created.runs.length > 0 && (
+          <div className="stack" style={{ gap: 8, marginBottom: 14 }}>
+            {[...created.runs]
+              .sort((a, b) => b.utility - a.utility)
+              .map((r, idx) => (
+                <div
+                  key={r.threadId}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    flexWrap: "wrap",
+                    padding: "8px 12px",
+                    background: "var(--surface)",
+                    border: idx === 0 ? "1.5px solid #09090b" : "1px solid var(--border)",
+                    borderRadius: 6,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <strong>{r.counterpartyName}</strong>
+                    {idx === 0 ? (
+                      <span className="badge badge-ok">
+                        Best Offer ({Math.round(r.utility * 100)}% utility)
+                      </span>
+                    ) : (
+                      <span className="badge">{Math.round(r.utility * 100)}% utility</span>
+                    )}
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      {r.turnsCount} signed turns
+                    </span>
+                  </div>
+                  <Link
+                    href={`/floor?agent=${encodeURIComponent(created.card.id)}&thread=${encodeURIComponent(r.threadId)}`}
+                    className="btn"
+                    style={{ fontSize: 12, padding: "4px 10px" }}
+                  >
+                    Inspect on Floor
+                  </Link>
+                </div>
+              ))}
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <Link href="/inbox" className="btn btn-primary">
-            Review & approve in Inbox
+            Compare & approve best offer in Inbox
           </Link>
-          {created.threadId && (
-            <Link
-              href={`/floor?agent=${encodeURIComponent(created.card.id)}&thread=${encodeURIComponent(created.threadId)}`}
-              className="btn"
-            >
-              View negotiation on Floor
-            </Link>
-          )}
           <button type="button" className="btn" onClick={onViewFleet}>
             Back to Active Agents
           </button>

@@ -16,6 +16,8 @@ export async function GET() {
     id: t.id,
     subject: t.subject,
     status: t.status,
+    aId: t.a,
+    bId: t.b,
     a: getCard(t.a)?.name ?? t.a,
     b: getCard(t.b)?.name ?? t.b,
     turns: t.turns.length,

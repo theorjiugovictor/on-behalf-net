@@ -143,21 +143,17 @@ export function seedAgents(): LocalAgent[] {
 }
 
 /**
- * Seed one pre-converged negotiation thread parked at `awaiting-approval` so
- * the Human Approval Inbox (`/inbox`) and navbar badge immediately showcase a
- * live multi-turn signed agreement on first visit.
+ * Seed active counterparty negotiation threads so that the Floor (`/floor`)
+ * and Approval Inbox (`/inbox`) immediately show real multi-turn agent
+ * interactions rather than an empty room.
  */
-export function seedInitialThread(agents: Map<string, LocalAgent>): Thread | null {
-  const lantern = agents.get("obn:lantern-talent");
-  const arcadia = agents.get("obn:arcadia-robotics");
-  if (!lantern || !arcadia) return null;
-
-  const threadId = "thr_seed_robotics_search";
-  const subject = "senior-robotics-engineer-search";
+export function seedInitialThreads(agents: Map<string, LocalAgent>): Thread[] {
+  const threads: Thread[] = [];
   const now = Date.now();
   const validUntil = new Date(now + 24 * 60 * 60 * 1000).toISOString();
 
   const makeTurn = (
+    threadId: string,
     sender: LocalAgent,
     recipient: LocalAgent,
     type: "propose" | "counter" | "escalate",
@@ -189,98 +185,227 @@ export function seedInitialThread(agents: Map<string, LocalAgent>): Thread | nul
     return { envelope, verdict };
   };
 
-  const deal1: Deal = {
-    subject,
-    terms: {
-      placement_fee: 24_500,
-      roles: 3,
-      guarantee_days: 45,
-      exclusivity_weeks: 6,
-      start_date: "2026-11-01",
-      clauses: ["certificate-of-incorporation", "background-check", "staged-invoicing"],
-    },
-  };
+  // 1. Meridian Cold Chain vs Kairo Foods (Stockholm–Copenhagen reefer lane)
+  const meridian = agents.get("obn:meridian-coldchain");
+  const kairo = agents.get("obn:kairo-foods");
+  if (meridian && kairo) {
+    const threadId = "thr_seed_freight_oresund";
+    const subject = "reefer-lane-stockholm-copenhagen";
 
-  const deal2: Deal = {
-    subject,
-    terms: {
-      placement_fee: 19_500,
-      roles: 2,
-      guarantee_days: 90,
-      exclusivity_weeks: 2,
-      start_date: "2026-11-15",
-      clauses: ["certificate-of-incorporation", "site-visit-signoff", "background-check"],
-    },
-  };
+    const fDeal1: Deal = {
+      subject,
+      terms: {
+        rate: 1020,
+        volume: 220,
+        term_months: 12,
+        incoterm: "DAP",
+        payment_days: 14,
+        clauses: ["certificate-of-incorporation", "temperature-logging", "claims-handling-sla"],
+      },
+    };
+    const fDeal2: Deal = {
+      subject,
+      terms: {
+        rate: 850,
+        volume: 140,
+        term_months: 6,
+        incoterm: "DAP",
+        payment_days: 45,
+        clauses: ["certificate-of-incorporation", "site-visit-signoff", "temperature-logging"],
+      },
+    };
+    const fDeal3: Deal = {
+      subject,
+      terms: {
+        rate: 895,
+        volume: 175,
+        term_months: 9,
+        incoterm: "DAP",
+        payment_days: 35,
+        clauses: [
+          "certificate-of-incorporation",
+          "site-visit-signoff",
+          "temperature-logging",
+          "claims-handling-sla",
+        ],
+      },
+    };
 
-  const deal3: Deal = {
-    subject,
-    terms: {
-      placement_fee: 23_000,
-      roles: 2,
-      guarantee_days: 75,
-      exclusivity_weeks: 4,
-      start_date: "2026-11-10",
-      clauses: ["certificate-of-incorporation", "site-visit-signoff", "background-check", "staged-invoicing"],
-    },
-  };
+    const ft1 = makeTurn(
+      threadId,
+      meridian,
+      kairo,
+      "propose",
+      fDeal1,
+      "Opening on the Stockholm–Copenhagen Øresund reefer corridor at $1,020/unit for 220 units on 14-day payment terms with continuous temperature logging.",
+      240_000,
+    );
+    const ft2 = makeTurn(
+      threadId,
+      kairo,
+      meridian,
+      "counter",
+      fDeal2,
+      "We can commit 140 chilled dairy units weekly if rate comes down to $850/unit on 45-day payment terms with cold-storage site inspection sign-off.",
+      180_000,
+    );
+    const ft3 = makeTurn(
+      threadId,
+      meridian,
+      kairo,
+      "counter",
+      fDeal3,
+      "Matching your movement: we can concede to $895/unit for 175 units on 35-day payment terms (coupled constraint floor enforced at $880/unit for >30d payment).",
+      90_000,
+    );
+    const fVerdict = evaluateDeal(fDeal3, kairo.mandate, { counterparty: meridian.card });
+    const fReason =
+      fVerdict.approvalReason ??
+      "Total contract value of USD 156,625 (Rate × Volume) exceeds the USD 60,000 autonomous authority threshold.";
+    const ft4 = makeTurn(
+      threadId,
+      kairo,
+      meridian,
+      "escalate",
+      fDeal3,
+      "Terms ($895/unit × 175 units = $156,625) sit inside both mandates. Escalating to Kairo Foods procurement inbox for Certificate of Incorporation and Site Visit sign-off.",
+      25_000,
+      fReason,
+    );
 
-  const t1 = makeTurn(
-    lantern,
-    arcadia,
-    "propose",
-    deal1,
-    "Opening retained search for senior controls engineers across Europe at $24,500/role for 3 roles with a 45-day guarantee.",
-    180_000,
-  );
-  const t2 = makeTurn(
-    arcadia,
-    lantern,
-    "counter",
-    deal2,
-    "We are committing 2 roles initially and need a 90-day replacement guarantee at $19,500/role.",
-    120_000,
-  );
-  const t3 = makeTurn(
-    lantern,
-    arcadia,
-    "counter",
-    deal3,
-    "Moving to $23,000/role for 2 roles with a 75-day replacement guarantee and 4-week exclusivity window.",
-    60_000,
-  );
+    threads.push({
+      id: threadId,
+      a: meridian.card.id,
+      b: kairo.card.id,
+      subject: "Meridian Cold Chain vs Kairo Foods",
+      status: "awaiting-approval",
+      turns: [ft1, ft2, ft3, ft4],
+      pendingApproval: {
+        agentId: kairo.card.id,
+        deal: fDeal3,
+        reason: fReason,
+        verdict: fVerdict,
+      },
+      createdAt: new Date(now - 240_000).toISOString(),
+      updatedAt: new Date(now - 25_000).toISOString(),
+    });
+  }
 
-  const finalVerdict = evaluateDeal(deal3, arcadia.mandate, { counterparty: lantern.card });
-  const reason =
-    finalVerdict.approvalReason ??
-    "Total of USD 46,000 (Placement fee × Roles committed) is at or above the USD 45,000 threshold for human sign-off.";
+  // 2. Lantern Talent vs Arcadia Robotics
+  const lantern = agents.get("obn:lantern-talent");
+  const arcadia = agents.get("obn:arcadia-robotics");
+  if (lantern && arcadia) {
+    const threadId = "thr_seed_robotics_search";
+    const subject = "senior-robotics-engineer-search";
 
-  const t4 = makeTurn(
-    arcadia,
-    lantern,
-    "escalate",
-    deal3,
-    `Terms are inside my mandate and we have converged on Placement fee USD 23,000, Roles committed 2 roles ($46,000 total). This exceeds my $45,000 autonomous authority, so I have referred it to a human at Arcadia Robotics.`,
-    15_000,
-    reason,
-  );
+    const deal1: Deal = {
+      subject,
+      terms: {
+        placement_fee: 24_500,
+        roles: 3,
+        guarantee_days: 45,
+        exclusivity_weeks: 6,
+        start_date: "2026-11-01",
+        clauses: ["certificate-of-incorporation", "background-check", "staged-invoicing"],
+      },
+    };
 
-  return {
-    id: threadId,
-    a: lantern.card.id,
-    b: arcadia.card.id,
-    subject: "Executive search",
-    status: "awaiting-approval",
-    turns: [t1, t2, t3, t4],
-    pendingApproval: {
-      agentId: arcadia.card.id,
-      deal: deal3,
+    const deal2: Deal = {
+      subject,
+      terms: {
+        placement_fee: 19_500,
+        roles: 2,
+        guarantee_days: 90,
+        exclusivity_weeks: 2,
+        start_date: "2026-11-15",
+        clauses: ["certificate-of-incorporation", "site-visit-signoff", "background-check"],
+      },
+    };
+
+    const deal3: Deal = {
+      subject,
+      terms: {
+        placement_fee: 23_000,
+        roles: 2,
+        guarantee_days: 75,
+        exclusivity_weeks: 4,
+        start_date: "2026-11-10",
+        clauses: [
+          "certificate-of-incorporation",
+          "site-visit-signoff",
+          "background-check",
+          "staged-invoicing",
+        ],
+      },
+    };
+
+    const t1 = makeTurn(
+      threadId,
+      lantern,
+      arcadia,
+      "propose",
+      deal1,
+      "Opening retained search for senior controls engineers across Europe at $24,500/role for 3 roles with a 45-day guarantee.",
+      180_000,
+    );
+    const t2 = makeTurn(
+      threadId,
+      arcadia,
+      lantern,
+      "counter",
+      deal2,
+      "We are committing 2 roles initially and need a 90-day replacement guarantee at $19,500/role.",
+      120_000,
+    );
+    const t3 = makeTurn(
+      threadId,
+      lantern,
+      arcadia,
+      "counter",
+      deal3,
+      "Moving to $23,000/role for 2 roles with a 75-day replacement guarantee and 4-week exclusivity window.",
+      60_000,
+    );
+
+    const finalVerdict = evaluateDeal(deal3, arcadia.mandate, { counterparty: lantern.card });
+    const reason =
+      finalVerdict.approvalReason ??
+      "Total of USD 46,000 (Placement fee × Roles committed) is at or above the USD 45,000 threshold for human sign-off.";
+
+    const t4 = makeTurn(
+      threadId,
+      arcadia,
+      lantern,
+      "escalate",
+      deal3,
+      `Terms are inside my mandate and we have converged on Placement fee USD 23,000, Roles committed 2 roles ($46,000 total). This exceeds my $45,000 autonomous authority, so I have referred it to a human at Arcadia Robotics.`,
+      15_000,
       reason,
-      verdict: finalVerdict,
-    },
-    createdAt: new Date(now - 180_000).toISOString(),
-    updatedAt: new Date(now - 15_000).toISOString(),
-  };
+    );
+
+    threads.push({
+      id: threadId,
+      a: lantern.card.id,
+      b: arcadia.card.id,
+      subject: "Lantern Talent vs Arcadia Robotics",
+      status: "awaiting-approval",
+      turns: [t1, t2, t3, t4],
+      pendingApproval: {
+        agentId: arcadia.card.id,
+        deal: deal3,
+        reason,
+        verdict: finalVerdict,
+      },
+      createdAt: new Date(now - 180_000).toISOString(),
+      updatedAt: new Date(now - 15_000).toISOString(),
+    });
+  }
+
+  return threads;
+}
+
+export function seedInitialThread(agents: Map<string, LocalAgent>): Thread | null {
+  return seedInitialThreads(agents)[0] ?? null;
 }
 
 // --- 1. Refrigerated freight ----------------------------------------------
@@ -629,15 +754,27 @@ const FIXTURES: Record<string, Opportunity[]> = {
     },
     {
       id: "opp_fx_s2",
-      title: "Nordic produce exporters flag Øresund cold chain capacity crunch",
-      url: "https://example-trade-press.com/nordic-cold-chain-capacity",
+      title: "Nordic Harvest Co-op opens tender for Øresund refrigerated produce lane",
+      url: "https://nordicharvest.se/tenders/2026-oresund-reefer",
       snippet:
-        "Exporters report losing up to 18% of chilled delivery slots to gaps in refrigerated " +
-        "road capacity between Stockholm, Malmö, and Copenhagen.",
+        "Nordic Harvest is soliciting multi-month carrier bids for temperature-logged produce transport " +
+        "between Stockholm and Copenhagen distribution hubs.",
       reason:
-        "Demand-side pressure on your lane. Supports holding nearer the top of " +
-        "your permitted range in the opening quote.",
-      score: 0.74,
+        "Second qualified shipper on the same Øresund corridor. Negotiating with both Kairo Foods and " +
+        "Nordic Harvest lets your agent compare rate and payment terms before you approve the winner.",
+      score: 0.89,
+      counterpartyDomain: "nordicharvest.se",
+    },
+    {
+      id: "opp_fx_s3",
+      title: "Skåne Fine Dairy seeks backup reefer capacity for Q4 peak",
+      url: "https://skanedairy.dk/procurement/q4-cold-chain",
+      snippet:
+        "Regional dairy producer seeks 60–150 unit capacity commitments with strict cold-chain SLA.",
+      reason:
+        "Smaller volume floor with faster payment window; strong secondary counterparty to benchmark rate.",
+      score: 0.81,
+      counterpartyDomain: "skanedairy.dk",
     },
   ],
   "obn:kairo-foods": [
@@ -656,14 +793,14 @@ const FIXTURES: Record<string, Opportunity[]> = {
     },
     {
       id: "opp_fx_b2",
-      title: "Øresund & Baltic Logistics posts spot reefer rates for Q4",
-      url: "https://example-freight-index.com/oresund-q4-reefer",
-      snippet: "Spot rates on the Stockholm–Copenhagen corridor are quoted between USD 910 and USD 1,040.",
+      title: "Baltic Polar Express announces dedicated Sweden–Denmark chilled fleet",
+      url: "https://balticpolarexpress.se/lanes/oresund-chilled",
+      snippet:
+        "Baltic Polar Express is offering 3-to-12 month fixed-rate reefer charters with continuous telemetry.",
       reason:
-        "Useful pricing anchor: your ceiling sits near the bottom of the current " +
-        "spot band, so a fixed-term deal is worth pursuing.",
-      score: 0.68,
-      counterpartyDomain: "example-freight-index.com",
+        "Competing Nordic carrier on the same corridor — allows parallel rate and payment-term benchmarking.",
+      score: 0.87,
+      counterpartyDomain: "balticpolarexpress.se",
     },
   ],
   "obn:lantern-talent": [
@@ -682,15 +819,14 @@ const FIXTURES: Record<string, Opportunity[]> = {
     },
     {
       id: "opp_fx_r2",
-      title: "Robotics controls salaries climb 11% year on year",
-      url: "https://example-talent-index.com/robotics-controls-salaries",
+      title: "Nordic Cobotics AB opens retained search for senior motion control leads",
+      url: "https://nordiccobotics.se/careers/retained-search-rfp",
       snippet:
-        "Median compensation for senior controls engineers rose sharply as automation " +
-        "hiring outpaced supply.",
+        "Stockholm-based industrial robotics maker seeks specialist search partner for 2–3 senior roles.",
       reason:
-        "Rising salaries lift percentage-based placement fees. Supports opening " +
-        "nearer the top of your permitted range.",
-      score: 0.72,
+        "Second employer in your exact robotics niche; negotiating both searches lets you optimize fee and exclusivity.",
+      score: 0.88,
+      counterpartyDomain: "nordiccobotics.se",
     },
   ],
   "obn:arcadia-robotics": [
@@ -706,6 +842,17 @@ const FIXTURES: Record<string, Opportunity[]> = {
         "terms close to what your mandate requires.",
       score: 0.93,
       counterpartyDomain: "lanterntalent.com",
+    },
+    {
+      id: "opp_fx_e2",
+      title: "Vektor Executive Search launches dedicated European robotics practice",
+      url: "https://vektorsearch.eu/practices/autonomous-systems",
+      snippet:
+        "Vektor offers retained technical search across Sweden, Denmark, and Germany with staged invoicing.",
+      reason:
+        "Alternative specialist search firm to benchmark placement fee and replacement guarantee days.",
+      score: 0.85,
+      counterpartyDomain: "vektorsearch.eu",
     },
   ],
   "obn:harbour-fc": [
@@ -724,15 +871,14 @@ const FIXTURES: Record<string, Opportunity[]> = {
     },
     {
       id: "opp_fx_c2",
-      title: "Second-tier shirt deals reach record values",
-      url: "https://example-sports-business.com/second-tier-shirt-values",
+      title: "Krona Sportswear seeks front-of-shirt club partner for 2027 cycle",
+      url: "https://kronasport.eu/sponsorships/2027-club-tender",
       snippet:
-        "Front-of-shirt values outside the top flight rose 14% this cycle, driven by " +
-        "direct-to-consumer brands seeking younger audiences.",
+        "Direct-to-consumer Nordic athletic brand is bidding on multi-season club inventory with digital activation.",
       reason:
-        "Market comparable that supports your fee floor, and evidence for holding " +
-        "category exclusivity back rather than bundling it in.",
-      score: 0.78,
+        "Competing sponsor bidder — negotiating both in parallel strengthens your fee floor and category terms.",
+      score: 0.89,
+      counterpartyDomain: "kronasport.eu",
     },
   ],
   "obn:nimbus-drinks": [
@@ -748,6 +894,17 @@ const FIXTURES: Record<string, Opportunity[]> = {
         "to market is when category exclusivity is still winnable.",
       score: 0.96,
       counterpartyDomain: "harbourfc.com",
+    },
+    {
+      id: "opp_fx_n2",
+      title: "Øresund Athletic Club opens commercial kit sponsorship tender",
+      url: "https://oresundathletic.dk/commercial/2027-kit-partner",
+      snippet:
+        "Copenhagen club offers front-of-shirt and matchday activation package for 2027–2029 seasons.",
+      reason:
+        "Comparable club inventory in the same target demographic to benchmark season fee and impression guarantees.",
+      score: 0.86,
+      counterpartyDomain: "oresundathletic.dk",
     },
   ],
 };
@@ -767,28 +924,26 @@ export function fixtureOpportunities(agentOrId: string | LocalAgent): Opportunit
     return [
       {
         id: `opp_fx_${agentId}_1`,
-        title: `Active RFP: Enterprise counterparty seeking ${subjectPretty} partner`,
-        url: `https://market-rfp.onbehalf.net/opportunities/${agentOrId.mandate.subject}`,
+        title: `Vanguard Labs opens enterprise tender for ${subjectPretty}`,
+        url: `https://vanguardlabs.ai/procurement/${agentOrId.mandate.subject}`,
         snippet:
-          `Verified counterparty has opened a structured tender for ${subjectPretty}, ` +
+          `Vanguard Labs has opened a structured tender for ${subjectPretty}, ` +
           `inviting autonomous agents to propose ${termLabel} within a 14-day settlement window.`,
         reason:
-          `Direct match for ${agentOrId.card.name}'s ${agentOrId.mandate.role} mandate on "${subjectPretty}". ` +
-          `A matched counterparty is already provisioned on the Trading Floor.`,
+          `High-priority match for ${agentOrId.card.name}'s ${agentOrId.mandate.role} mandate on "${subjectPretty}".`,
         score: 0.95,
         counterpartyDomain: "vanguardlabs.ai",
       },
       {
         id: `opp_fx_${agentId}_2`,
-        title: `Q4 Market Benchmark: ${subjectPretty} ${termLabel} index`,
-        url: `https://benchmarks.onbehalf.net/index/${agentOrId.mandate.subject}`,
+        title: `Nordic Enterprise Group soliciting competing bids on ${subjectPretty}`,
+        url: `https://nordicenterprise.se/rfp/${agentOrId.mandate.subject}`,
         snippet:
-          `Recent bilateral settlements on On Behalf show strong convergence around structured ` +
-          `milestone and payment windows for ${subjectPretty} agreements.`,
+          `Stockholm-based Nordic Enterprise Group is evaluating second-source partners on ${subjectPretty} with flexible ${termLabel}.`,
         reason:
-          `Supports opening near the ambitious end of ${agentOrId.card.name}'s mandate bounds before making reciprocal concessions.`,
-        score: 0.79,
-        counterpartyDomain: "benchmarks.onbehalf.net",
+          `Competing counterparty discovered via traversal — negotiating with both Vanguard Labs and Nordic Enterprise lets your agent compare utility scores in Inbox.`,
+        score: 0.87,
+        counterpartyDomain: "nordicenterprise.se",
       },
     ];
   }

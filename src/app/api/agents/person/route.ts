@@ -91,7 +91,7 @@ export async function POST(req: Request) {
   putAgent(agent);
   setContact(id, { email });
 
-  const { counterparty, scenario, thread } = await launchAutonomousDeal(agent, origin);
+  const { counterparty, scenario, thread, allRuns } = await launchAutonomousDeal(agent, origin);
 
   const code = newCode();
   putChallenge(newChallenge(id, email, code));
@@ -108,6 +108,12 @@ export async function POST(req: Request) {
       threadStatus: thread.status,
       turnsCount: thread.turns.length,
       settledDeal: thread.pendingApproval?.deal ?? thread.settledDeal,
+      runs: allRuns.map((r) => ({
+        counterpartyName: r.counterparty.card.name,
+        threadId: r.thread.id,
+        turnsCount: r.thread.turns.length,
+        utility: r.thread.pendingApproval?.verdict.utility ?? 0.75,
+      })),
       drafted: Boolean(draft),
       verification: {
         method: "email",

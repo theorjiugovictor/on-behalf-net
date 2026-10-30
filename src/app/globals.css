@@ -218,6 +218,52 @@ a:hover {
   transform: translateY(-1px);
 }
 
+/* --- Inner Page Content Wrapper & Page Headers --------------------------- */
+
+.content-wrap {
+  padding-top: 44px;
+}
+
+.content-wrap > main > .eyebrow,
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: #f4f4f5;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+}
+
+.content-wrap h1 {
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+  margin: 0 0 14px;
+  color: #09090b;
+}
+
+@media (max-width: 768px) {
+  .content-wrap h1 {
+    font-size: 30px;
+  }
+}
+
+.lede {
+  font-size: 16.5px;
+  line-height: 1.65;
+  color: var(--text-dim);
+  max-width: 760px;
+  margin: 0 0 28px;
+}
+
 /* --- Full First-Page Hero (Massive Whitespace, Action Texts Centered) ----- */
 
 .hero-fullpage {

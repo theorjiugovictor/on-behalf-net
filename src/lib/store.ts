@@ -10,7 +10,7 @@
 
 import type { LocalAgent, AgentCard, AttestationLevel, Thread } from "./types";
 import type { Challenge } from "./attestation";
-import { SCENARIOS, seedAgents, seedInitialThread, type Scenario } from "./seed";
+import { SCENARIOS, seedAgents, seedInitialThreads, type Scenario } from "./seed";
 
 type Store = {
   agents: Map<string, LocalAgent>;
@@ -49,8 +49,7 @@ function create(): Store {
   };
   for (const agent of seedAgents()) store.agents.set(agent.card.id, agent);
   for (const scenario of SCENARIOS) store.scenarios.set(scenario.id, scenario);
-  const initialThread = seedInitialThread(store.agents);
-  if (initialThread) store.threads.set(initialThread.id, initialThread);
+  for (const t of seedInitialThreads(store.agents)) store.threads.set(t.id, t);
   return store;
 }
 
@@ -63,9 +62,8 @@ if (
   for (const agent of seedAgents()) store.agents.set(agent.card.id, agent);
   for (const scenario of SCENARIOS) store.scenarios.set(scenario.id, scenario);
 }
-if (store.threads.size === 0) {
-  const initialThread = seedInitialThread(store.agents);
-  if (initialThread) store.threads.set(initialThread.id, initialThread);
+if (!store.threads.has("thr_seed_freight_oresund")) {
+  for (const t of seedInitialThreads(store.agents)) store.threads.set(t.id, t);
 }
 
 // --- agents & scenarios ---------------------------------------------------

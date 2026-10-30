@@ -15,10 +15,18 @@
 import { generateKeyPair, newId } from "./identity";
 import { chatJSON } from "./llm";
 import { advance, openThread } from "./negotiate";
-import { putAgent, putScenario } from "./store";
+import { listAgents, putAgent, putScenario } from "./store";
 import { publicSpec } from "./terms";
 import type { Scenario } from "./seed";
-import { PROTOCOL, type Direction, type LocalAgent, type Mandate, type TermSpec, type Thread } from "./types";
+import {
+  PROTOCOL,
+  type Direction,
+  type LocalAgent,
+  type Mandate,
+  type Opportunity,
+  type TermSpec,
+  type Thread,
+} from "./types";
 
 export type DraftTerm = {
   key?: string;
@@ -442,20 +450,26 @@ export function fallbackTerms(opts?: {
 
 /**
  * Provision an autonomous Market Counterparty agent with an overlapping Zone of
- * Possible Agreement (ZOPA) and a ready-to-run Floor Scenario so any newly
- * onboarded user agent can step onto the Trading Floor and negotiate immediately.
+ * Possible Agreement (ZOPA) and a ready-to-run Floor Scenario.
+ * `stanceIndex` varies how generous the counterparty's bounds are so competing
+ * counterparties converge at distinct utility scores.
  */
 export function buildCounterpartyFor(
   primary: LocalAgent,
   origin: string,
+  opts?: { stanceIndex?: number; domain?: string; name?: string; purpose?: string },
 ): { counterparty: LocalAgent; scenario: Scenario } {
   const m = primary.mandate;
   const oppRole = oppositeRole(m.role);
-  const cpInfo = counterpartyIdentityFor(m.subject, oppRole);
-  const cpId = `obn:${cpInfo.slug}-${newId("").replace("_", "").slice(0, 4)}`;
+  const stanceIndex = opts?.stanceIndex ?? 0;
+  const baseInfo = counterpartyIdentityFor(m.subject, oppRole, stanceIndex);
+  const domain = opts?.domain || baseInfo.domain;
+  const name = opts?.name || (opts?.domain ? titleFromDomain(opts.domain) : baseInfo.name);
+  const slug = domain.split(".")[0].replace(/[^a-z0-9-]+/gi, "-").toLowerCase();
+  const cpId = `obn:${slug}-${newId("").replace("_", "").slice(0, 4)}`;
   const { publicKey, privateKey } = generateKeyPair();
 
-  const cpTerms: TermSpec[] = m.terms.map((spec) => mirrorTermSpec(spec));
+  const cpTerms: TermSpec[] = m.terms.map((spec) => mirrorTermSpec(spec, stanceIndex));
 
   const cpMandate: Mandate = {
     agentId: cpId,
@@ -466,7 +480,7 @@ export function buildCounterpartyFor(
     approval: [
       {
         kind: "always",
-        reason: `Final sign-off required by ${cpInfo.name} deal desk before binding execution.`,
+        reason: `Final sign-off required by ${name} deal desk before binding execution.`,
       },
     ],
   };
@@ -475,14 +489,14 @@ export function buildCounterpartyFor(
     card: {
       protocol: PROTOCOL,
       id: cpId,
-      name: cpInfo.name,
-      purpose: cpInfo.purpose,
-      principal: { kind: "company", name: cpInfo.name, domain: cpInfo.domain },
+      name,
+      purpose: opts?.purpose || baseInfo.purpose,
+      principal: { kind: "company", name, domain },
       attestation: {
         level: "domain",
-        domain: cpInfo.domain,
+        domain,
         verifiedAt: new Date().toISOString(),
-        note: "Verified counterparty node on the On Behalf network.",
+        note: "Verified counterparty node discovered via traversal.",
       },
       publicKey,
       endpoint: `${origin}/api/agents/${encodeURIComponent(cpId)}/inbox`,
@@ -503,48 +517,121 @@ export function buildCounterpartyFor(
     .replace(/\b\w/g, (c) => c.toUpperCase());
 
   const scenario: Scenario = {
-    id: `custom-${primary.card.id}`,
-    title: `${primary.card.name} — ${prettySubject}`,
-    blurb: `${primary.card.name} (${m.role}) negotiating ${prettySubject.toLowerCase()} with ${cpInfo.name} (${oppRole}).`,
+    id: `custom-${primary.card.id}-${cpId}`,
+    title: `${primary.card.name} vs ${name}`,
+    blurb: `${primary.card.name} (${m.role}) negotiating ${prettySubject.toLowerCase()} with ${name} (${oppRole}).`,
     subject: m.subject,
     opens: primary.card.id,
     responds: cpId,
     ricardian: {
       templateId: `obn-standard-${m.subject}-2026`,
       templateHash: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-      jurisdiction: "US-NY / UNCITRAL",
+      jurisdiction: "SE-STHLM / DK-CPH",
     },
   };
 
   return { counterparty, scenario };
 }
 
+export type AutonomousDealRun = {
+  counterparty: LocalAgent;
+  scenario: Scenario;
+  thread: Thread;
+};
+
+/**
+ * Dispatch an agent to negotiate in parallel against multiple counterparties
+ * discovered via Tavily traversal (or a 2-counterparty market tender fallback).
+ */
+export async function dispatchToOpportunities(
+  primary: LocalAgent,
+  origin: string,
+  opportunities?: Opportunity[],
+): Promise<AutonomousDealRun[]> {
+  const existingAgents = listAgents();
+  const candidates = (opportunities ?? []).slice(0, 3);
+  const count = Math.max(2, candidates.length);
+  const runs: AutonomousDealRun[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const opp = candidates[i];
+    const oppDomain = opp?.counterpartyDomain?.toLowerCase();
+
+    // If a seeded/hosted agent with this exact domain and compatible subject already exists, reuse it for index 0
+    const matchedExisting =
+      oppDomain &&
+      existingAgents.find(
+        (a) =>
+          a.card.id !== primary.card.id &&
+          a.card.principal.kind === "company" &&
+          a.card.principal.domain.toLowerCase() === oppDomain &&
+          a.mandate.subject === primary.mandate.subject,
+      );
+
+    let counterparty: LocalAgent;
+    let scenario: Scenario;
+
+    if (matchedExisting) {
+      counterparty = matchedExisting;
+      scenario = {
+        id: `traversal-${primary.card.id}-${counterparty.card.id}`,
+        title: `${primary.card.name} vs ${counterparty.card.name}`,
+        blurb: `${primary.card.name} negotiating with ${counterparty.card.name}.`,
+        subject: primary.mandate.subject,
+        opens: primary.card.id,
+        responds: counterparty.card.id,
+      };
+    } else {
+      const built = buildCounterpartyFor(primary, origin, {
+        stanceIndex: i,
+        domain: oppDomain,
+        purpose: opp?.snippet,
+      });
+      counterparty = built.counterparty;
+      scenario = built.scenario;
+      putAgent(counterparty);
+      putScenario(scenario);
+    }
+
+    const thread = openThread(primary.card.id, counterparty.card.id, scenario.title);
+    for (let stepIdx = 0; stepIdx < 16; stepIdx++) {
+      if (thread.status !== "open") break;
+      const turn = await advance(thread);
+      if (!turn) break;
+    }
+
+    runs.push({ counterparty, scenario, thread });
+  }
+
+  return runs;
+}
+
 /**
  * End-to-end autonomous agent launch:
- * Once a human creates an agent, the agent immediately discovers a matched
- * counterparty, opens a thread on the floor, negotiates turn-by-turn under
- * its mathematical mandate until convergence, and parks the converged deal in
- * `/inbox` (`awaiting-approval`) so human sign-off is the ONLY remaining step.
+ * Once a human creates an agent, the agent discovers multiple matched
+ * counterparties, negotiates with them in parallel under its mandate until
+ * convergence, and parks the competing deals in `/inbox` (`awaiting-approval`).
  */
 export async function launchAutonomousDeal(
   primary: LocalAgent,
   origin: string,
-): Promise<{ counterparty: LocalAgent; scenario: Scenario; thread: Thread }> {
-  const { counterparty, scenario } = buildCounterpartyFor(primary, origin);
-  putAgent(counterparty);
-  putScenario(scenario);
-
-  const thread = openThread(primary.card.id, counterparty.card.id, scenario.title);
-  for (let i = 0; i < 16; i++) {
-    if (thread.status !== "open") break;
-    const turn = await advance(thread);
-    if (!turn) break;
-  }
-
-  return { counterparty, scenario, thread };
+): Promise<{
+  counterparty: LocalAgent;
+  scenario: Scenario;
+  thread: Thread;
+  allRuns: AutonomousDealRun[];
+}> {
+  const runs = await dispatchToOpportunities(primary, origin);
+  const first = runs[0];
+  return {
+    counterparty: first.counterparty,
+    scenario: first.scenario,
+    thread: first.thread,
+    allRuns: runs,
+  };
 }
 
-function mirrorTermSpec(spec: TermSpec): TermSpec {
+function mirrorTermSpec(spec: TermSpec, stanceIndex = 0): TermSpec {
   const b = spec.bound;
   const oppDir: Direction =
     spec.direction === "higher-better"
@@ -553,32 +640,40 @@ function mirrorTermSpec(spec: TermSpec): TermSpec {
         ? "higher-better"
         : "match";
 
+  // Vary the ZOPA overlap across counterparties so competing offers settle at different utilities
+  const overlapFactor = stanceIndex === 0 ? 0.68 : stanceIndex === 1 ? 0.46 : 0.34;
+  const anchorVal = stanceIndex === 0 ? 0.72 : stanceIndex === 1 ? 0.82 : 0.88;
+
   if (b.kind === "number") {
     const lo = b.min ?? (b.max !== undefined ? Math.max(1, Math.round(b.max * 0.6)) : 100);
     const hi = b.max ?? Math.max(lo + 4, Math.round(lo * 1.4));
     const span = Math.max(2, hi - lo);
 
     if (spec.direction === "higher-better") {
-      // Primary is floored at `lo` and opens near `hi`.
-      // Counterparty wants lower-better: set ceiling ~45% into primary's range so there is a healthy ZOPA.
-      const cpMax = b.integer ? Math.max(lo + 1, Math.round(lo + span * 0.55)) : Math.round((lo + span * 0.55) * 100) / 100;
-      const cpMin = b.integer ? Math.max(1, Math.round(lo - span * 0.35)) : Math.max(1, Math.round((lo - span * 0.35) * 100) / 100);
+      const cpMax = b.integer
+        ? Math.max(lo + 1, Math.round(lo + span * overlapFactor))
+        : Math.round((lo + span * overlapFactor) * 100) / 100;
+      const cpMin = b.integer
+        ? Math.max(1, Math.round(lo - span * 0.35))
+        : Math.max(1, Math.round((lo - span * 0.35) * 100) / 100);
       return {
         ...spec,
         direction: oppDir,
         bound: { ...b, min: cpMin, max: cpMax },
-        anchor: 0.8,
+        anchor: anchorVal,
       };
     } else {
-      // Primary is capped at `hi` and opens near `lo`.
-      // Counterparty wants higher-better: set floor ~45% below `hi` so there is a healthy ZOPA.
-      const cpMin = b.integer ? Math.max(1, Math.round(hi - span * 0.55)) : Math.max(1, Math.round((hi - span * 0.55) * 100) / 100);
-      const cpMax = b.integer ? Math.round(hi + span * 0.35) : Math.round((hi + span * 0.35) * 100) / 100;
+      const cpMin = b.integer
+        ? Math.max(1, Math.round(hi - span * overlapFactor))
+        : Math.max(1, Math.round((hi - span * overlapFactor) * 100) / 100);
+      const cpMax = b.integer
+        ? Math.round(hi + span * 0.35)
+        : Math.round((hi + span * 0.35) * 100) / 100;
       return {
         ...spec,
         direction: oppDir,
         bound: { ...b, min: cpMin, max: cpMax },
-        anchor: 0.8,
+        anchor: anchorVal,
       };
     }
   }
@@ -609,38 +704,65 @@ function oppositeRole(role: string): string {
   return "counterparty";
 }
 
-function counterpartyIdentityFor(subject: string, oppRole: string) {
+function counterpartyIdentityFor(subject: string, oppRole: string, stanceIndex = 0) {
   const s = subject.toLowerCase();
   if (s.includes("freight") || s.includes("lane") || s.includes("cargo")) {
+    const shippers = [
+      { name: "Nordic Harvest Co-op", slug: "nordic-harvest", domain: "nordicharvest.se" },
+      { name: "Skåne Fine Dairy", slug: "skane-dairy", domain: "skanedairy.dk" },
+      { name: "Veridian Fresh Exports", slug: "veridian-exports", domain: "veridianexports.com" },
+    ];
+    const carriers = [
+      { name: "Baltic Polar Express", slug: "baltic-polar", domain: "balticpolarexpress.se" },
+      { name: "Atlas Cold Transport", slug: "atlas-transport", domain: "atlastransport.io" },
+      { name: "Kattegat Reefer Lines", slug: "kattegat-reefer", domain: "kattegatreefer.dk" },
+    ];
+    const picked = (oppRole === "shipper" ? shippers : carriers)[stanceIndex % 3];
     return {
-      name: oppRole === "shipper" ? "Veridian Fresh Exports" : "Atlas Cold Transport",
-      slug: oppRole === "shipper" ? "veridian-exports" : "atlas-transport",
-      domain: oppRole === "shipper" ? "veridianexports.com" : "atlastransport.io",
+      ...picked,
       purpose:
         oppRole === "shipper"
-          ? "We ship temperature-sensitive goods weekly and negotiate fixed-term lane capacity with verified carriers."
-          : "We operate regional fleet capacity and negotiate structured volume commitments with commercial shippers.",
+          ? "We ship temperature-sensitive goods weekly across Sweden and Denmark and negotiate fixed-term lane capacity."
+          : "We operate regional Nordic fleet capacity and negotiate structured volume commitments with commercial shippers.",
     };
   }
   if (s.includes("saas") || s.includes("software") || s.includes("cloud")) {
+    const buyers = [
+      { name: "Northstar Global AB", slug: "northstar-ab", domain: "northstarglobal.se" },
+      { name: "Krona Financial Group", slug: "krona-group", domain: "kronafinancial.dk" },
+      { name: "Baltic Industrial Corp", slug: "baltic-corp", domain: "balticindustrial.eu" },
+    ];
+    const vendors = [
+      { name: "Stratos Cloud Systems", slug: "stratos-cloud", domain: "stratoscloud.dev" },
+      { name: "Aether Enterprise AI", slug: "aether-ai", domain: "aetherenterprise.eu" },
+      { name: "Nordic Compute Mesh", slug: "nordic-mesh", domain: "nordicmesh.se" },
+    ];
+    const picked = (oppRole.includes("buyer") ? buyers : vendors)[stanceIndex % 3];
     return {
-      name: oppRole.includes("buyer") ? "Northstar Global Corp" : "Stratos Cloud Systems",
-      slug: oppRole.includes("buyer") ? "northstar-corp" : "stratos-cloud",
-      domain: oppRole.includes("buyer") ? "northstarglobal.com" : "stratoscloud.dev",
+      ...picked,
       purpose:
         oppRole.includes("buyer")
           ? "Enterprise procurement team acquiring mission-critical cloud software under strict annual budget and SLA mandates."
           : "Enterprise B2B SaaS provider offering annual platform licenses with high-availability SLAs.",
     };
   }
+  const clients = [
+    { name: "Vanguard Labs Europe", slug: "vanguard-labs", domain: "vanguardlabs.ai" },
+    { name: "Nordic Enterprise Group", slug: "nordic-enterprise", domain: "nordicenterprise.se" },
+    { name: "Copenhagen Ventures", slug: "cph-ventures", domain: "cphventures.dk" },
+  ];
+  const contractors = [
+    { name: "Helio Studio Partners", slug: "helio-partners", domain: "heliopartners.co" },
+    { name: "Svea Technical Advisory", slug: "svea-advisory", domain: "sveaadvisory.se" },
+    { name: "Øresund Engineering Labs", slug: "oresund-labs", domain: "oresundlabs.dk" },
+  ];
+  const isClient = oppRole.includes("client") || oppRole.includes("buyer");
+  const picked = (isClient ? clients : contractors)[stanceIndex % 3];
   return {
-    name: oppRole.includes("client") || oppRole.includes("buyer") ? "Vanguard Labs Inc." : "helio Studio Partners",
-    slug: oppRole.includes("client") || oppRole.includes("buyer") ? "vanguard-labs" : "helio-partners",
-    domain: oppRole.includes("client") || oppRole.includes("buyer") ? "vanguardlabs.ai" : "heliopartners.co",
-    purpose:
-      oppRole.includes("client") || oppRole.includes("buyer")
-        ? "We retain specialist technical advisors and contractors under milestone-backed commercial mandates."
-        : "We deliver specialist commercial advisory and engineering engagements under structured retainer mandates.",
+    ...picked,
+    purpose: isClient
+      ? "We retain specialist technical advisors and contractors under milestone-backed commercial mandates."
+      : "We deliver specialist commercial advisory and engineering engagements under structured retainer mandates.",
   };
 }
 
