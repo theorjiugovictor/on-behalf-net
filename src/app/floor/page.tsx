@@ -48,25 +48,73 @@ export default function FloorPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    fetch("/api/agents")
-      .then((r) => r.json())
-      .then((d) => {
-        setAgents(d.agents ?? []);
-        setScenarios(d.scenarios ?? []);
-        if (d.scenarios?.[0]) setPicked(d.scenarios[0].id);
-      })
-      .catch(() => setError("Could not load agents."));
-  }, []);
-
-  const scenario = scenarios.find((s) => s.id === picked) ?? null;
-  const cardFor = (id?: string) => agents.find((a) => a.id === id) ?? null;
+  const autoOpenedRef = useRef(false);
 
   const load = useCallback(async (id: string) => {
     const res = await fetch(`/api/threads/${id}`, { cache: "no-store" });
     if (res.ok) setData(await res.json());
   }, []);
+
+  useEffect(() => {
+    fetch("/api/agents", { cache: "no-store" })
+      .then((r) => r.json())
+      .then(async (d) => {
+        const loadedAgents = d.agents ?? [];
+        const loadedScenarios: Scenario[] = d.scenarios ?? [];
+        setAgents(loadedAgents);
+        setScenarios(loadedScenarios);
+
+        const params =
+          typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+        const targetAgent = params?.get("agent");
+        const targetThread = params?.get("thread");
+        const shouldAutoOpen = params?.get("auto") === "1";
+
+        const matchedScenario = targetAgent
+          ? loadedScenarios.find((s) => s.opens === targetAgent || s.responds === targetAgent)
+          : undefined;
+
+        const chosen = matchedScenario ?? loadedScenarios[0];
+        if (chosen) {
+          setPicked(chosen.id);
+          if (targetAgent && chosen.responds === targetAgent) {
+            setMySide("b");
+          } else {
+            setMySide("a");
+          }
+
+          if (targetThread && !autoOpenedRef.current) {
+            autoOpenedRef.current = true;
+            await load(targetThread);
+          } else if (shouldAutoOpen && matchedScenario && !autoOpenedRef.current) {
+            autoOpenedRef.current = true;
+            setBusy(true);
+            try {
+              const res = await fetch("/api/threads", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  a: chosen.opens,
+                  b: chosen.responds,
+                  subject: chosen.title,
+                }),
+              });
+              const json = await res.json();
+              if (res.ok && json.thread?.id) {
+                await load(json.thread.id);
+                setAuto(true);
+              }
+            } finally {
+              setBusy(false);
+            }
+          }
+        }
+      })
+      .catch(() => setError("Could not load agents."));
+  }, [load]);
+
+  const scenario = scenarios.find((s) => s.id === picked) ?? null;
+  const cardFor = (id?: string) => agents.find((a) => a.id === id) ?? null;
 
   const openFloor = useCallback(async () => {
     if (!scenario) return;
@@ -114,6 +162,45 @@ export default function FloorPage() {
       setBusy(false);
     }
   }, [data?.thread, load]);
+
+  const fastForward = useCallback(async () => {
+    if (!data?.thread) return;
+    setAuto(false);
+    setBusy(true);
+    try {
+      for (let i = 0; i < 14; i++) {
+        const res = await fetch(`/api/threads/${data.thread.id}/step`, { method: "POST" });
+        const json = await res.json();
+        if (!res.ok || !json.advanced || json.status !== "open") break;
+      }
+      await load(data.thread.id);
+    } finally {
+      setBusy(false);
+    }
+  }, [data?.thread, load]);
+
+  const inlineApprove = useCallback(
+    async (approve: boolean) => {
+      if (!data?.thread) return;
+      setBusy(true);
+      try {
+        await fetch(`/api/threads/${data.thread.id}/approve`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            approve,
+            note: approve
+              ? "Approved directly from Trading Floor executive gate."
+              : "Declined from Trading Floor executive gate.",
+          }),
+        });
+        await load(data.thread.id);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [data?.thread, load],
+  );
 
   // Auto-advance loop. Re-armed after each completed step so a slow turn never
   // stacks up overlapping requests.
@@ -274,7 +361,10 @@ export default function FloorPage() {
             {busy && <span className="spinner" aria-hidden />}
             <strong style={{ color: "var(--text)" }}>{thread.subject}</strong>
             <span className={`badge ${statusBadge(thread.status)}`}>{thread.status}</span>
-            <span>{thread.turns.length} turns</span>
+            <span>{thread.turns.length} signed turns</span>
+            <span className="badge" style={{ fontFamily: "var(--mono)", fontSize: 10.5 }}>
+              ed25519 verified · anti-replay active
+            </span>
             {data?.nextTurnName && <span>· next: {data.nextTurnName}</span>}
           </div>
 
@@ -284,10 +374,13 @@ export default function FloorPage() {
               onClick={() => setAuto((v) => !v)}
               disabled={!data?.nextTurn}
             >
-              {auto ? "Pause" : "Run"}
+              {auto ? "Pause" : "Run (Step-by-Step)"}
             </button>
             <button className="btn" onClick={step} disabled={busy || !data?.nextTurn}>
               Step once
+            </button>
+            <button className="btn" onClick={fastForward} disabled={busy || !data?.nextTurn}>
+              ⚡ Fast-Forward to Convergence
             </button>
             <button
               className="btn"
@@ -301,24 +394,47 @@ export default function FloorPage() {
           </div>
 
           {thread.status === "awaiting-approval" && thread.pendingApproval && (
-            <div className="banner">
-              <h3>The agents have agreed. A human has not.</h3>
+            <div className="banner" style={{ border: "1.5px solid #d97706" }}>
+              <h3>Autonomous convergence reached — Human Sign-Off Required</h3>
               <p>
-                {thread.pendingApproval.reason} The thread is parked until someone at{" "}
-                {participants[thread.pendingApproval.agentId]?.name ?? "the company"} decides.
+                {thread.pendingApproval.reason} The thread is parked until a human principal at{" "}
+                <strong>{participants[thread.pendingApproval.agentId]?.name ?? "the company"}</strong>{" "}
+                approves.
               </p>
-              <Link href="/inbox" className="btn btn-primary" style={{ display: "inline-block" }}>
-                Open the inbox →
-              </Link>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                <button
+                  type="button"
+                  className="btn btn-ok"
+                  onClick={() => inlineApprove(true)}
+                  disabled={busy}
+                >
+                  ✓ Approve & Sign Deal on Wire
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-bad"
+                  onClick={() => inlineApprove(false)}
+                  disabled={busy}
+                >
+                  Decline
+                </button>
+                <Link href="/inbox" className="btn">
+                  Open Executive Inbox →
+                </Link>
+              </div>
             </div>
           )}
 
           {thread.status === "accepted" && thread.settledDeal && (
             <div className="banner" style={{ borderColor: "var(--ok)", background: "var(--ok-dim)" }}>
-              <h3 style={{ color: "var(--ok)" }}>Deal closed</h3>
-              <p style={{ color: "#a7e8c0", marginBottom: 0 }}>
-                Every step above is signed and replayable.
+              <h3 style={{ color: "var(--ok)" }}>✓ Deal Executed & Cryptographically Signed</h3>
+              <p style={{ color: "var(--text)", marginBottom: 8 }}>
+                Every turn above is Ed25519-signed and replay-protected. Final human sign-off has been
+                recorded on the wire.
               </p>
+              <Link href="/inbox" className="btn btn-primary" style={{ display: "inline-block", fontSize: 12.5 }}>
+                View Executed Contract & Export JSON in Inbox →
+              </Link>
             </div>
           )}
 

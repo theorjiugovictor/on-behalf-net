@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
+  <title>On Behalf</title>
+
+  <!-- Obsidian Container -->
+  <rect width="64" height="64" rx="14" fill="#09090B" />
+
+  <!-- Principal A (Upper-Left Agent Wing) -->
+  <path
+    d="M14 36V20C14 16.6863 16.6863 14 20 14H36L29 21H21V29L14 36Z"
+    fill="#FFFFFF"
+  />
+  <path d="M23 23L29.5 29.5" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" />
+
+  <!-- Principal B (Lower-Right Agent Wing) -->
+  <path
+    d="M50 28V44C50 47.3137 47.3137 50 44 50H28L35 43H43V35L50 28Z"
+    fill="#FFFFFF"
+  />
+  <path d="M41 41L34.5 34.5" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" />
+
+  <!-- Central Mandate Equilibrium Diamond -->
+  <rect
+    x="32"
+    y="23.5147"
+    width="12"
+    height="12"
+    rx="2.5"
+    transform="rotate(45 32 23.5147)"
+    fill="#09090B"
+    stroke="#FFFFFF"
+    stroke-width="2.75"
+  />
+  <circle cx="32" cy="32" r="2.75" fill="#16A34A" />
+</svg>
+

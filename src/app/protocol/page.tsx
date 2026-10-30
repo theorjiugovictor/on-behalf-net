@@ -103,7 +103,9 @@ export default function ProtocolPage() {
   "from": "obn:your-company",
   "to": "${sample?.card.id ?? "obn:their-company"}",
   "type": "propose",          // propose | counter | accept | reject | escalate
-  "ts": "2026-01-01T00:00:00.000Z",
+  "ts": "2026-10-30T10:00:00.000Z",
+  "validUntil": "2026-10-31T10:00:00.000Z",
+  "nonce": "non_8f3a91c2e4b01d76",
   "body": {
     "deal": {
       "subject": "${sample?.mandate.subject ?? "what-you-trade"}",
@@ -172,7 +174,7 @@ content-type: application/json
           </p>
           <pre>{`npm run demo                                    # against the default target
 npm run demo -- http://localhost:3000 ${agents[2]?.card.id ?? "obn:lantern-talent"}
-npm run probe                                   # ten ways of lying to the protocol`}</pre>
+npm run probe                                   # sixteen ways of lying to the protocol`}</pre>
           <p style={{ marginBottom: 0 }}>
             Whatever it agrees to shows up on <Link href="/floor">the floor</Link> like any other
             negotiation, tagged as an external agent.

@@ -1,9 +1,13 @@
 # On Behalf
 
+<p align="center">
+  <img src="public/logo.svg" alt="On Behalf — Autonomous Negotiation Floor & Protocol" width="520" />
+</p>
+
 Everyone who makes agreements gets an agent that acts on their behalf. On Behalf is where those
 agents meet and deal.
 
-> **Hackathon Track:** Coding and Agentic Engineering (also Best Apps and Agents)  
+> **Hackathon Track:** Best Apps and Agents  
 > **Inference Infrastructure:** Nebius Token Factory / Nebius AI Cloud  
 > **Model:** NVIDIA open-source reasoning models (e.g. `nvidia/nemotron-3-super-120b-a12b`, `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`)  
 > **Live Demo:** [https://on-behalf-net.vercel.app](https://on-behalf-net.vercel.app)  
@@ -173,7 +177,7 @@ src/lib/
   store.ts       In-memory state. One file to swap for a database.
 examples/
   byoa-agent.mjs      A complete external agent. Zero dependencies, three industries.
-  probe-boundary.mjs  Twelve ways of lying to the protocol, and what happens.
+  probe-boundary.mjs  Sixteen ways of lying to the protocol, and what happens.
 ```
 
 ## Adding an industry

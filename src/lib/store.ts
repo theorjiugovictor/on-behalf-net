@@ -10,12 +10,14 @@
 
 import type { LocalAgent, AgentCard, AttestationLevel, Thread } from "./types";
 import type { Challenge } from "./attestation";
-import { seedAgents } from "./seed";
+import { SCENARIOS, seedAgents, seedInitialThread, type Scenario } from "./seed";
 
 type Store = {
   agents: Map<string, LocalAgent>;
   /** Cards of agents we do not host, learned from inbound messages. */
   foreignCards: Map<string, AgentCard>;
+  /** Scenarios available on the trading floor (seeded + user-created). */
+  scenarios: Map<string, Scenario>;
   threads: Map<string, Thread>;
   /**
    * Contact details, keyed by agent id, and the only place they live. These
@@ -39,22 +41,40 @@ function create(): Store {
   const store: Store = {
     agents: new Map(),
     foreignCards: new Map(),
+    scenarios: new Map(),
     threads: new Map(),
     contacts: new Map(),
     challenges: new Map(),
     seenNonces: new Set(),
   };
   for (const agent of seedAgents()) store.agents.set(agent.card.id, agent);
+  for (const scenario of SCENARIOS) store.scenarios.set(scenario.id, scenario);
+  const initialThread = seedInitialThread(store.agents);
+  if (initialThread) store.threads.set(initialThread.id, initialThread);
   return store;
 }
 
 const store: Store = globalThis.__obnStore ?? (globalThis.__obnStore = create());
+if (
+  !store.scenarios ||
+  store.agents.get("obn:meridian-coldchain")?.mandate.subject !== "reefer-lane-stockholm-copenhagen"
+) {
+  store.scenarios = store.scenarios ?? new Map();
+  for (const agent of seedAgents()) store.agents.set(agent.card.id, agent);
+  for (const scenario of SCENARIOS) store.scenarios.set(scenario.id, scenario);
+}
+if (store.threads.size === 0) {
+  const initialThread = seedInitialThread(store.agents);
+  if (initialThread) store.threads.set(initialThread.id, initialThread);
+}
 
-// --- agents ---------------------------------------------------------------
+// --- agents & scenarios ---------------------------------------------------
 
 export const getAgent = (id: string) => store.agents.get(id);
 export const listAgents = () => [...store.agents.values()];
 export const putAgent = (agent: LocalAgent) => void store.agents.set(agent.card.id, agent);
+export const listScenarios = () => [...store.scenarios.values()];
+export const putScenario = (scenario: Scenario) => void store.scenarios.set(scenario.id, scenario);
 
 /**
  * Learn an agent we do not host.

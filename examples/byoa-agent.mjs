@@ -102,13 +102,13 @@ function verify(envelope, publicKeyRaw) {
 // ---------------------------------------------------------------------------
 
 const IDENTITY = {
-  "reefer-lane-lagos-accra": {
+  "reefer-lane-stockholm-copenhagen": {
     id: "obn:northwind-produce",
     name: "Northwind Produce",
     domain: "northwind-produce.example",
     role: "shipper",
     purpose:
-      "We export chilled produce out of Lagos and buy refrigerated lane capacity " +
+      "We export chilled produce from Stockholm to Copenhagen across the Øresund corridor and buy refrigerated lane capacity " +
       "on fixed-term contracts. We care about claims history more than headline rate.",
     terms: {
       rate: { want: "lower", limit: 940, weight: 0.9 },

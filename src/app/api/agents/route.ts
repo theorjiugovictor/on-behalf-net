@@ -8,8 +8,8 @@
 
 import { NextResponse } from "next/server";
 import { agentIdForDomain, generateKeyPair } from "@/lib/identity";
-import { SCENARIOS } from "@/lib/seed";
-import { listAgents, putAgent, rememberForeignCard, getCard } from "@/lib/store";
+import { listAgents, listScenarios, putAgent, rememberForeignCard, getCard } from "@/lib/store";
+import { launchAutonomousDeal } from "@/lib/onboarding";
 import { publicSpec } from "@/lib/terms";
 import { PROTOCOL, type AgentCard, type LocalAgent, type Mandate } from "@/lib/types";
 
@@ -24,7 +24,7 @@ export async function GET() {
     subject: a.mandate.subject,
     mandate: a.mandate,
   }));
-  return NextResponse.json({ protocol: PROTOCOL, agents: hosted, scenarios: SCENARIOS });
+  return NextResponse.json({ protocol: PROTOCOL, agents: hosted, scenarios: listScenarios() });
 }
 
 type CreateBody = {
@@ -111,6 +111,19 @@ export async function POST(req: Request) {
     createdAt: new Date().toISOString(),
   };
   putAgent(agent);
+  const { counterparty, scenario, thread } = await launchAutonomousDeal(agent, base);
 
-  return NextResponse.json({ created: true, card: agent.card, mandate: agent.mandate }, { status: 201 });
+  return NextResponse.json(
+    {
+      created: true,
+      card: agent.card,
+      mandate: agent.mandate,
+      counterparty: counterparty.card,
+      scenarioId: scenario.id,
+      threadId: thread.id,
+      threadStatus: thread.status,
+      turnsCount: thread.turns.length,
+    },
+    { status: 201 },
+  );
 }

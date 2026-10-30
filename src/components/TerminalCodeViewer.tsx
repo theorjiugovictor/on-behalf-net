@@ -51,19 +51,20 @@ const SNIPPETS: CodeSnippet[] = [
     language: "json",
     badge: "Policy Bounds",
     code: `{
-  "agentId": "meridian-arctic",
-  "role": "shipper",
+  "agentId": "obn:meridian-coldchain",
+  "role": "carrier",
+  "subject": "reefer-lane-stockholm-copenhagen",
   "bounds": {
-    "rate_per_unit": { "min": 1300, "target": 1450, "max": 1620 },
-    "payment_days": { "min": 14, "target": 45, "max": 60 },
-    "temperature_c": { "min": -22, "target": -20, "max": -18 }
+    "rate": { "min": 820, "target": 980, "max": 1150, "unit": "USD" },
+    "payment_days": { "min": 7, "target": 14, "max": 45, "unit": "days" },
+    "volume": { "min": 20, "target": 220, "max": 400, "unit": "units" }
   },
   "coupledConstraints": [
     {
-      "id": "risk-premium-coupling",
-      "description": "If payment window exceeds 30 days, carrier rate ceiling is constrained to <= $1,600",
-      "condition": { "term": "payment_days", "op": ">", "value": 30 },
-      "enforce": { "term": "rate_per_unit", "op": "<=", "value": 1600 }
+      "id": "cc-freight-payment-rate",
+      "description": "Extended payment days (>30) require rate per unit of at least 880 USD",
+      "when": { "term": "payment_days", "op": ">", "value": 30 },
+      "enforce": { "term": "rate", "op": ">=", "value": 880 }
     }
   ],
   "gameTheory": {

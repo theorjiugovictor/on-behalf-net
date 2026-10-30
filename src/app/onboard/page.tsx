@@ -24,6 +24,12 @@ type HostedAgent = AgentCard & {
 type Created = {
   card: AgentCard;
   mandate: Mandate;
+  counterparty?: AgentCard;
+  scenarioId?: string;
+  threadId?: string;
+  threadStatus?: string;
+  turnsCount?: number;
+  settledDeal?: { subject: string; terms: Record<string, unknown> };
   notice: string;
   readSite?: boolean;
   drafted?: boolean;
@@ -35,29 +41,29 @@ type Tab = "list" | "create" | "qr";
 
 const PRESETS = [
   {
-    label: "Freelance AI Engineer",
+    label: "Nordic AI Advisor (Stockholm)",
     kind: "person" as const,
-    name: "Alex Rivera",
-    email: "alex@riveralabs.dev",
+    name: "Astrid Lindqvist",
+    email: "astrid@nordic-ai.se",
     about:
-      "I'm a senior AI engineer taking advisory contracts. My day rate starts at $1,800 USD, contract length 1 to 6 months, and I require 14-day net payment terms.",
+      "I'm a principal AI systems architect in Stockholm taking advisory contracts across Europe. My day rate starts at $1,800 USD, contract length 2 to 6 months, and I require 14-day net payment terms.",
   },
   {
-    label: "Reefer Lane Carrier",
+    label: "Øresund Reefer Carrier (Denmark/Sweden)",
     kind: "company" as const,
-    url: "apex-logistics.internal",
-    name: "Apex Cold Logistics",
-    email: "dispatch@apexlogistics.com",
+    url: "scandia-cold-logistics.dk",
+    name: "Scandia Cold Logistics",
+    email: "dispatch@scandialogistics.dk",
     about:
-      "Temperature-controlled refrigerated freight carrier operating cross-border logistics lanes. Enforcing minimum rate $820/unit and strict fuel surcharge protection.",
+      "Temperature-controlled refrigerated freight carrier operating Stockholm–Copenhagen–Hamburg lanes. Enforcing minimum rate $840/unit and strict fuel surcharge protection.",
   },
   {
-    label: "SaaS Enterprise Buyer",
+    label: "European Enterprise SaaS Buyer",
     kind: "person" as const,
-    name: "Jordan Taylor (Procurement)",
-    email: "procurement@enterprise-tech.corp",
+    name: "Henrik Møller (Procurement)",
+    email: "procurement@krona-enterprise.eu",
     about:
-      "Corporate procurement lead negotiating B2B software infrastructure. Capping annual contract value at $65,000 with 99.95% uptime SLA and quarterly billing.",
+      "Head of European software procurement in Copenhagen negotiating B2B cloud & AI infrastructure. Capping annual contract value at $65,000 with 99.95% uptime SLA and 30-day billing.",
   },
 ];
 
@@ -278,7 +284,11 @@ export default function OnboardPage() {
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <Link href="/floor" className="btn btn-primary" style={{ fontSize: 12.5 }}>
+                      <Link
+                        href={`/floor?agent=${encodeURIComponent(agent.id)}&auto=1`}
+                        className="btn btn-primary"
+                        style={{ fontSize: 12.5 }}
+                      >
                         Take to Trading Floor →
                       </Link>
                       <a
@@ -494,10 +504,29 @@ function Result({
   return (
     <div className="stack">
       <div className="banner" style={{ borderColor: "var(--ok)", background: "var(--ok-dim)" }}>
-        <h3 style={{ color: "var(--ok)" }}>{created.card.name} is on the network!</h3>
-        <p style={{ color: "#a7e8c0", marginBottom: 0 }}>
-          It has its own Ed25519 keypair, a mathematically backed mandate, and an active endpoint.
+        <h3 style={{ color: "var(--ok)" }}>
+          {created.card.name} is live — and has already negotiated a deal on your behalf!
+        </h3>
+        <p style={{ color: "var(--text)", marginBottom: 12 }}>
+          Zero manual babysitting required: your agent automatically discovered{" "}
+          <strong>{created.counterparty?.name ?? "a counterparty"}</strong>, exchanged{" "}
+          <strong>{created.turnsCount ?? "multiple"} Ed25519-signed turns</strong> within your mathematical
+          mandate, and parked the converged agreement in your Inbox.{" "}
+          <strong>Your only human step is final sign-off.</strong>
         </p>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Link href="/inbox" className="btn btn-primary">
+            1. Approve Converged Deal in Inbox (Human Gate) →
+          </Link>
+          {created.threadId && (
+            <Link
+              href={`/floor?agent=${encodeURIComponent(created.card.id)}&thread=${encodeURIComponent(created.threadId)}`}
+              className="btn"
+            >
+              Inspect Signed Negotiation Transcript →
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="card">
@@ -564,8 +593,11 @@ function Result({
         </p>
         <pre>{JSON.stringify(created.mandate, null, 2)}</pre>
         <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <Link href="/floor" className="btn btn-primary">
-            Take Agent to Trading Floor →
+          <Link
+            href={`/floor?agent=${encodeURIComponent(created.card.id)}&auto=1`}
+            className="btn btn-primary"
+          >
+            Take Agent to Trading Floor (Start Deal) →
           </Link>
           <button type="button" className="btn" onClick={onViewFleet}>
             View in My Agents Fleet

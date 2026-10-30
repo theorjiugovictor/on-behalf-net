@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 140" width="560" height="140" fill="none">
+  <title>On Behalf — Autonomous Negotiation Floor &amp; Protocol</title>
+  <desc>Full horizontal brand lockup for On Behalf (obn/0.3).</desc>
+
+  <!-- Card Background -->
+  <rect width="560" height="140" rx="20" fill="#FFFFFF" />
+  <rect x="1" y="1" width="558" height="138" rx="19" stroke="#E4E4E7" stroke-width="2" />
+
+  <!-- Subtle Tactical Grid Lines -->
+  <line x1="140" y1="0" x2="140" y2="140" stroke="#F4F4F5" stroke-width="1.5" />
+  <line x1="0" y1="70" x2="560" y2="70" stroke="#F4F4F5" stroke-width="1" />
+
+  <!-- Left: Reciprocal Equilibrium Mark (96x96 at x=22, y=22) -->
+  <g transform="translate(22, 22)">
+    <rect width="96" height="96" rx="21" fill="#09090B" />
+    <rect x="1.2" y="1.2" width="93.6" height="93.6" rx="19.8" stroke="#27272A" stroke-width="1.2" />
+
+    <!-- Outer Mandate Bounds -->
+    <path d="M19 30V22C19 20.3431 20.3431 19 22 19H30" stroke="#3F3F46" stroke-width="2" stroke-linecap="round" />
+    <path d="M77 66V74C77 75.6569 75.6569 77 74 77H66" stroke="#3F3F46" stroke-width="2" stroke-linecap="round" />
+
+    <!-- Diagonal Mandate Axis -->
+    <line x1="22" y1="74" x2="74" y2="22" stroke="#27272A" stroke-width="1.6" stroke-dasharray="2.5 3.5" />
+
+    <!-- Principal A (Upper-Left Agent) -->
+    <path
+      d="M24 53V30C24 26.6863 26.6863 24 30 24H53L43.5 33.5H33.5V43.5L24 53Z"
+      fill="#FFFFFF"
+    />
+    <path d="M37 37L45 45" stroke="#FFFFFF" stroke-width="3.6" stroke-linecap="round" />
+    <circle cx="33.5" cy="33.5" r="3.5" fill="#09090B" />
+
+    <!-- Principal B (Lower-Right Agent) -->
+    <path
+      d="M72 43V66C72 69.3137 69.3137 72 66 72H43L52.5 62.5H62.5V52.5L72 43Z"
+      fill="#FFFFFF"
+    />
+    <path d="M59 59L51 51" stroke="#FFFFFF" stroke-width="3.6" stroke-linecap="round" />
+    <circle cx="62.5" cy="62.5" r="3.5" fill="#09090B" />
+
+    <!-- Central Mandate Gate -->
+    <rect
+      x="48"
+      y="36.6863"
+      width="16"
+      height="16"
+      rx="3.2"
+      transform="rotate(45 48 36.6863)"
+      fill="#09090B"
+      stroke="#FFFFFF"
+      stroke-width="3.2"
+    />
+    <circle cx="48" cy="48" r="3.6" fill="#16A34A" />
+  </g>
+
+  <!-- Right: Wordmark & Protocol Telemetry -->
+  <g transform="translate(156, 0)">
+    <!-- Primary Brand Title -->
+    <text
+      x="0"
+      y="72"
+      fill="#09090B"
+      font-family="'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+      font-size="44"
+      font-weight="800"
+      letter-spacing="-1.6"
+    >On Behalf</text>
+
+    <!-- Protocol Pill Badge -->
+    <g transform="translate(238, 42)">
+      <rect width="88" height="28" rx="14" fill="#F4F4F5" stroke="#E4E4E7" stroke-width="1.2" />
+      <circle cx="15" cy="14" r="4" fill="#16A34A" />
+      <text
+        x="26"
+        y="18"
+        fill="#52525B"
+        font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
+        font-size="12"
+        font-weight="600"
+      >obn/0.3</text>
+    </g>
+
+    <!-- Subtitle / Descriptor -->
+    <text
+      x="2"
+      y="100"
+      fill="#71717A"
+      font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
+      font-size="13"
+      font-weight="500"
+      letter-spacing="0.4"
+    >PROTOCOL / FLOOR  ·  AUTONOMOUS MANDATE NEGOTIATION</text>
+  </g>
+</svg>
+
