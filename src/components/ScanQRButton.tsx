@@ -33,7 +33,6 @@ export function ScanQRButton({
         onClick={() => setIsOpen(true)}
         title="Scan QR code with phone to create an agent and join the floor"
       >
-        <span aria-hidden>📱</span>
         <span>{label}</span>
       </button>
 

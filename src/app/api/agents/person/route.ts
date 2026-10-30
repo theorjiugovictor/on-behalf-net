@@ -24,7 +24,13 @@ export const dynamic = "force-dynamic";
 const canSendEmail = () => Boolean(process.env.OBN_SMTP_URL);
 
 export async function POST(req: Request) {
-  let body: { name?: string; email?: string; about?: string };
+  let body: {
+    name?: string;
+    email?: string;
+    about?: string;
+    requireIncorporation?: boolean;
+    requireSiteVisit?: boolean;
+  };
   try {
     body = await req.json();
   } catch {
@@ -52,7 +58,10 @@ export async function POST(req: Request) {
   }
 
   const draft = await draftFromDescription(name, about);
-  const mandate = starterMandate(id, draft, "individual");
+  const mandate = starterMandate(id, draft, "individual", {
+    requireIncorporation: body.requireIncorporation ?? true,
+    requireSiteVisit: body.requireSiteVisit ?? false,
+  });
   const { publicKey, privateKey } = generateKeyPair();
   const origin = process.env.OBN_PUBLIC_URL ?? new URL(req.url).origin;
 

@@ -79,7 +79,7 @@ export default function TraversePage() {
           ))}
         </select>
         <button className="btn btn-primary" onClick={() => runFor(selected)} disabled={busy || !selected}>
-          {busy ? "Traversing Open Web…" : "↻ Re-Run Traversal"}
+          {busy ? "Traversing open web…" : "Re-run traversal"}
         </button>
       </div>
 
@@ -132,14 +132,14 @@ export default function TraversePage() {
                   }}
                 >
                   <a href={o.url} target="_blank" rel="noreferrer" className="mono" style={{ fontSize: 12 }}>
-                    {o.url} ↗
+                    {o.url}
                   </a>
                   <Link
                     href={`/floor?agent=${encodeURIComponent(selected)}&auto=1`}
                     className="btn btn-primary"
                     style={{ fontSize: 12.5 }}
                   >
-                    Dispatch {result.agent.name} to Negotiate →
+                    Dispatch {result.agent.name} to Floor
                   </Link>
                 </div>
               </div>

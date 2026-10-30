@@ -21,7 +21,7 @@ import { PROTOCOL, type LocalAgent } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  let body: { url?: string };
+  let body: { url?: string; requireIncorporation?: boolean; requireSiteVisit?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -53,7 +53,10 @@ export async function POST(req: Request) {
     `${name} trades on the open market. This agent's purpose has not yet been ` +
       `reviewed by a human — confirm it before the agent commits to anything.`;
 
-  const mandate = starterMandate(id, draft, "counterparty");
+  const mandate = starterMandate(id, draft, "counterparty", {
+    requireIncorporation: body.requireIncorporation ?? true,
+    requireSiteVisit: body.requireSiteVisit ?? false,
+  });
   const { publicKey, privateKey } = generateKeyPair();
   const origin = process.env.OBN_PUBLIC_URL ?? new URL(req.url).origin;
 

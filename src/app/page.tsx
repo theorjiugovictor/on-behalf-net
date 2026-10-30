@@ -2,7 +2,6 @@ import Link from "next/link";
 import { modelConfigured, modelName } from "@/lib/llm";
 import { searchConfigured } from "@/lib/tavily";
 import { TerminalCodeViewer } from "@/components/TerminalCodeViewer";
-import { LiveHeroSimulator } from "@/components/LiveHeroSimulator";
 
 export const dynamic = "force-dynamic";
 
@@ -147,14 +146,9 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Interactive Live Autonomous Bargaining Preview */}
-        <div style={{ width: "100%", marginTop: 42 }}>
-          <LiveHeroSimulator />
-        </div>
-
         {/* Discreet Scroll Cue */}
         <div className="hero-scroll-cue">
-          <span>Scroll to explore 6-layer architecture ↓</span>
+          <span>Scroll to explore architecture ↓</span>
         </div>
       </section>
 

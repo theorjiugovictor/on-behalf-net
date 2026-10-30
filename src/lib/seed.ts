@@ -197,7 +197,7 @@ export function seedInitialThread(agents: Map<string, LocalAgent>): Thread | nul
       guarantee_days: 45,
       exclusivity_weeks: 6,
       start_date: "2026-11-01",
-      clauses: ["background-check", "reference-check", "staged-invoicing"],
+      clauses: ["certificate-of-incorporation", "background-check", "staged-invoicing"],
     },
   };
 
@@ -209,7 +209,7 @@ export function seedInitialThread(agents: Map<string, LocalAgent>): Thread | nul
       guarantee_days: 90,
       exclusivity_weeks: 2,
       start_date: "2026-11-15",
-      clauses: ["background-check", "reference-check"],
+      clauses: ["certificate-of-incorporation", "site-visit-signoff", "background-check"],
     },
   };
 
@@ -221,7 +221,7 @@ export function seedInitialThread(agents: Map<string, LocalAgent>): Thread | nul
       guarantee_days: 75,
       exclusivity_weeks: 4,
       start_date: "2026-11-10",
-      clauses: ["background-check", "reference-check", "staged-invoicing"],
+      clauses: ["certificate-of-incorporation", "site-visit-signoff", "background-check", "staged-invoicing"],
     },
   };
 
@@ -313,12 +313,20 @@ function freightPair(): LocalAgent[] {
           num("payment_days", "Payment terms", "lower-better", { min: 7, max: 45, unit: "days", integer: true }, 0.4, 0.4),
           {
             key: "clauses",
-            label: "Contract clauses",
+            label: "Contract & verification clauses",
             bound: {
               kind: "set",
-              allowed: ["temperature-logging", "claims-handling-sla", "volume-rebate", "backhaul-option"],
+              allowed: [
+                "certificate-of-incorporation",
+                "site-visit-signoff",
+                "temperature-logging",
+                "claims-handling-sla",
+                "volume-rebate",
+                "backhaul-option",
+              ],
+              required: ["certificate-of-incorporation"],
               forbidden: ["exclusivity", "unlimited-liability", "auto-renewal"],
-              maxItems: 4,
+              maxItems: 5,
             },
             direction: "match",
             weight: 0.6,
@@ -365,13 +373,19 @@ function freightPair(): LocalAgent[] {
           num("payment_days", "Payment terms", "higher-better", { min: 15, max: 60, unit: "days", integer: true }, 0.4, 0.85),
           {
             key: "clauses",
-            label: "Contract clauses",
+            label: "Contract & verification clauses",
             bound: {
               kind: "set",
-              allowed: ["temperature-logging", "claims-handling-sla", "volume-rebate"],
-              required: ["temperature-logging"],
+              allowed: [
+                "certificate-of-incorporation",
+                "site-visit-signoff",
+                "temperature-logging",
+                "claims-handling-sla",
+                "volume-rebate",
+              ],
+              required: ["certificate-of-incorporation", "site-visit-signoff", "temperature-logging"],
               forbidden: ["exclusivity", "unlimited-liability"],
-              maxItems: 4,
+              maxItems: 5,
             },
             direction: "match",
             weight: 0.5,
@@ -414,12 +428,19 @@ function recruitingPair(): LocalAgent[] {
           },
           {
             key: "clauses",
-            label: "Engagement clauses",
+            label: "Engagement & verification clauses",
             bound: {
               kind: "set",
-              allowed: ["background-check", "reference-check", "staged-invoicing"],
+              allowed: [
+                "certificate-of-incorporation",
+                "site-visit-signoff",
+                "background-check",
+                "reference-check",
+                "staged-invoicing",
+              ],
+              required: ["certificate-of-incorporation"],
               forbidden: ["fee-on-failure", "unlimited-replacements"],
-              maxItems: 4,
+              maxItems: 5,
             },
             direction: "match",
             weight: 0.5,
@@ -457,13 +478,19 @@ function recruitingPair(): LocalAgent[] {
           },
           {
             key: "clauses",
-            label: "Engagement clauses",
+            label: "Engagement & verification clauses",
             bound: {
               kind: "set",
-              allowed: ["background-check", "reference-check", "staged-invoicing"],
-              required: ["background-check"],
+              allowed: [
+                "certificate-of-incorporation",
+                "site-visit-signoff",
+                "background-check",
+                "reference-check",
+                "staged-invoicing",
+              ],
+              required: ["certificate-of-incorporation", "site-visit-signoff", "background-check"],
               forbidden: ["unlimited-replacements"],
-              maxItems: 4,
+              maxItems: 5,
             },
             direction: "match",
             weight: 0.5,

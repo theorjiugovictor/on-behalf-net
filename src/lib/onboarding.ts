@@ -280,9 +280,14 @@ function heuristicDraftFromDomain(domain: string, pageText: string): Draft {
  * out falls back to a minimal fee-and-term shape, so onboarding never produces
  * an agent with nothing to negotiate.
  */
-export function starterMandate(agentId: string, draft: Draft | null, fallbackRole: string): Mandate {
+export function starterMandate(
+  agentId: string,
+  draft: Draft | null,
+  fallbackRole: string,
+  opts?: { requireIncorporation?: boolean; requireSiteVisit?: boolean },
+): Mandate {
   const terms = (draft?.terms ?? [])
-    .map(toSpec)
+    .map((t) => toSpec(t, opts))
     .filter((s): s is TermSpec => s !== null)
     .slice(0, 6);
 
@@ -291,7 +296,7 @@ export function starterMandate(agentId: string, draft: Draft | null, fallbackRol
     version: 1,
     role: draft?.role?.trim() || fallbackRole,
     subject: draft?.subject?.trim() || "unspecified-engagement",
-    terms: terms.length ? terms : fallbackTerms(),
+    terms: terms.length ? terms : fallbackTerms(opts),
     // Everything stops for a human until someone deliberately relaxes this.
     approval: [
       {
@@ -304,7 +309,10 @@ export function starterMandate(agentId: string, draft: Draft | null, fallbackRol
   };
 }
 
-export function toSpec(term: DraftTerm): TermSpec | null {
+export function toSpec(
+  term: DraftTerm,
+  opts?: { requireIncorporation?: boolean; requireSiteVisit?: boolean },
+): TermSpec | null {
   const key = term.key?.trim();
   if (!key) return null;
   const label = term.label?.trim() || key.replace(/[-_]/g, " ");
@@ -353,20 +361,31 @@ export function toSpec(term: DraftTerm): TermSpec | null {
     }
     case "boolean":
       return { key, label, bound: { kind: "boolean" }, direction, weight };
-    case "set":
+    case "set": {
+      const req = ["mutual-nda"];
+      if (opts?.requireIncorporation !== false) req.push("certificate-of-incorporation");
+      if (opts?.requireSiteVisit) req.push("site-visit-signoff");
       return {
         key,
         label,
         bound: {
           kind: "set",
-          allowed: ["milestone-escrow", "ip-assignment", "sla-guarantee", "mutual-nda"],
-          required: ["mutual-nda"],
+          allowed: [
+            "certificate-of-incorporation",
+            "site-visit-signoff",
+            "milestone-escrow",
+            "ip-assignment",
+            "sla-guarantee",
+            "mutual-nda",
+          ],
+          required: req,
           forbidden: ["exclusivity", "unlimited-liability", "auto-renewal"],
-          maxItems: 4,
+          maxItems: 5,
         },
         direction: "match",
         weight,
       };
+    }
     case "date":
       return { key, label, bound: { kind: "date" }, direction, weight };
     default:
@@ -374,7 +393,13 @@ export function toSpec(term: DraftTerm): TermSpec | null {
   }
 }
 
-export function fallbackTerms(): TermSpec[] {
+export function fallbackTerms(opts?: {
+  requireIncorporation?: boolean;
+  requireSiteVisit?: boolean;
+}): TermSpec[] {
+  const req = ["mutual-nda"];
+  if (opts?.requireIncorporation !== false) req.push("certificate-of-incorporation");
+  if (opts?.requireSiteVisit) req.push("site-visit-signoff");
   return [
     {
       key: "fee",
@@ -394,13 +419,20 @@ export function fallbackTerms(): TermSpec[] {
     },
     {
       key: "clauses",
-      label: "Contract clauses",
+      label: "Contract & verification clauses",
       bound: {
         kind: "set",
-        allowed: ["milestone-escrow", "ip-assignment", "sla-guarantee", "mutual-nda"],
-        required: ["mutual-nda"],
+        allowed: [
+          "certificate-of-incorporation",
+          "site-visit-signoff",
+          "milestone-escrow",
+          "ip-assignment",
+          "sla-guarantee",
+          "mutual-nda",
+        ],
+        required: req,
         forbidden: ["exclusivity", "unlimited-liability", "auto-renewal"],
-        maxItems: 4,
+        maxItems: 5,
       },
       direction: "match",
       weight: 0.5,
