@@ -297,7 +297,14 @@ export const getThread = (id: string) => {
 
 export const listThreads = () => {
   loadFromDiskIfNewer();
-  return [...store.threads.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const uniqueById = new Map<string, Thread>();
+  for (const t of store.threads.values()) {
+    if (!t?.id) continue;
+    // Exclude synthetic boundary probe runs from UI thread listings
+    if (t.a.startsWith("obn:probe-") || t.b.startsWith("obn:probe-")) continue;
+    uniqueById.set(t.id, t);
+  }
+  return [...uniqueById.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 };
 
 export function putThread(thread: Thread) {

@@ -31,30 +31,43 @@ export default function InboxPage() {
   const [simulating, setSimulating] = useState(false);
 
   const load = useCallback(async () => {
-    await syncClientBundleToServer();
-    const res = await fetch("/api/threads", { cache: "no-store" });
-    const { threads: rows } = (await res.json()) as { threads: Row[] };
-    const relevant = rows.filter(
-      (r) => r.status === "awaiting-approval" || r.status === "accepted" || r.status === "rejected",
-    );
-    const detailed = await Promise.all(
-      relevant.map(async (r) => {
-        const d = await fetch(`/api/threads/${r.id}`, { cache: "no-store" });
-        return (await d.json()) as DetailedThread;
-      }),
-    );
-    const pendingItems = detailed
-      .filter((d) => d.thread.status === "awaiting-approval")
-      .sort(
-        (a, b) =>
-          (b.thread.pendingApproval?.verdict.utility ?? 0) -
-          (a.thread.pendingApproval?.verdict.utility ?? 0),
+    try {
+      await syncClientBundleToServer();
+      const res = await fetch("/api/threads", { cache: "no-store" });
+      if (!res.ok) return;
+      const { threads: rows = [] } = (await res.json()) as { threads: Row[] };
+      const relevant = rows.filter(
+        (r) =>
+          r.status === "awaiting-approval" || r.status === "accepted" || r.status === "rejected",
       );
-    setPending(pendingItems);
-    setSettled(
-      detailed.filter((d) => d.thread.status === "accepted" || d.thread.status === "rejected"),
-    );
-    setLoading(false);
+      const rawDetailed = await Promise.all(
+        relevant.map(async (r) => {
+          try {
+            const d = await fetch(`/api/threads/${r.id}`, { cache: "no-store" });
+            if (!d.ok) return null;
+            return (await d.json()) as DetailedThread;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      const detailed = rawDetailed.filter(
+        (d): d is DetailedThread => Boolean(d && d.thread && d.thread.status),
+      );
+      const pendingItems = detailed
+        .filter((d) => d.thread.status === "awaiting-approval" && Boolean(d.thread.pendingApproval))
+        .sort(
+          (a, b) =>
+            (b.thread.pendingApproval?.verdict.utility ?? 0) -
+            (a.thread.pendingApproval?.verdict.utility ?? 0),
+        );
+      setPending(pendingItems);
+      setSettled(
+        detailed.filter((d) => d.thread.status === "accepted" || d.thread.status === "rejected"),
+      );
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {

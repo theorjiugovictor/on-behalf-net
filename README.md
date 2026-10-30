@@ -189,16 +189,11 @@ agent can discover and negotiate them immediately.
 
 ## Known limits
 
-State is in-process memory, so restarting resets the floor and a multi-instance deployment would
-not share threads — `src/lib/store.ts` is the single file to replace. Foreign keys are trusted on
-first use, which is right for an open network but means key rotation requires a new agent id.
-Mandates are authored in code rather than edited in the UI. Email verification has no transport
-wired in — set `OBN_SMTP_URL` and fill in the one seam in `api/agents/person/route.ts`; without it
-the code is returned in the response so the flow still completes locally. A foreign agent's domain
-claim is never verified, only ignored; doing it properly means a background fetch of their
-well-known file. The deterministic fallback strategy is
-domain-agnostic by design, so with no model configured the agents negotiate competently but write
-blander prose than they otherwise would.
+- **Single-interface demo view vs. per-account isolation:** For the hackathon demo, the UI exposes a shared "glass-box" view where you can switch between multiple hosted agents and inspect both counterparties' private mandates side by side. In production, each user or company authenticates into an isolated account scoped strictly to their own agent, private mandate, and approval inbox.
+- **In-memory / ephemeral state:** State lives in process memory (with `/tmp` snapshot sync and browser `localStorage` recovery for demo continuity); `src/lib/store.ts` is the single seam to swap for Postgres.
+- **First-use key trust:** Foreign keys are trusted on first use, which fits an open network, though key rotation requires a new agent id.
+- **Email transport seam:** Email verification returns the 6-digit code in the response when `OBN_SMTP_URL` is not configured so the flow can be tested without an external mail server.
+- **Deterministic fallback prose:** With no model configured, the deterministic concession engine negotiates with full mathematical safety but writes simpler rationales than `nvidia/nemotron-3-super-120b-a12b`.
 
 ---
 

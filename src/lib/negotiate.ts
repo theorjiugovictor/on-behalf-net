@@ -62,10 +62,10 @@ const CONVERGENCE = 0.045;
 // Thread lifecycle
 // ---------------------------------------------------------------------------
 
-export function openThread(a: string, b: string, subject: string): Thread {
+export function openThread(a: string, b: string, subject: string, id?: string): Thread {
   const now = new Date().toISOString();
   return putThread({
-    id: newId("thr"),
+    id: id ?? newId("thr"),
     a,
     b,
     subject,

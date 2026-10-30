@@ -551,6 +551,7 @@ function Result({
     setBusy(true);
     setStatus(null);
     try {
+      await syncClientBundleToServer();
       const res = await fetch(`/api/agents/${encodeURIComponent(created.card.id)}/verify`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -558,6 +559,7 @@ function Result({
       });
       const json = await res.json();
       if (json.verified) {
+        if (json.agent) saveClientBundle({ agents: [json.agent] });
         setLevel(json.attestation.level);
         setStatus(json.attestation.note ?? "Verified.");
       } else {

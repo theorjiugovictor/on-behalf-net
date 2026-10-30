@@ -43,6 +43,7 @@ export default function TraversePage() {
     setResult(null);
     setDispatchedRuns(null);
     try {
+      await syncClientBundleToServer();
       const res = await fetch(`/api/traverse?agent=${encodeURIComponent(agentId)}`, {
         cache: "no-store",
       });
@@ -58,6 +59,7 @@ export default function TraversePage() {
     if (!selected || !result) return;
     setDispatching(true);
     try {
+      await syncClientBundleToServer();
       const res = await fetch("/api/traverse", {
         method: "POST",
         headers: { "content-type": "application/json" },

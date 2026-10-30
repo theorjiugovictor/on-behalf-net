@@ -41,33 +41,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/" className="wordmark">
                 <div className="brand-icon">
                   <svg
-                    width="18"
-                    height="18"
+                    width="20"
+                    height="20"
                     viewBox="0 0 64 64"
                     fill="none"
                     xmlns="http://www.w3.org/2000/svg"
                     aria-hidden="true"
                   >
+                    <circle cx="25" cy="32" r="14" stroke="currentColor" strokeWidth="4.8" />
+                    <circle cx="39" cy="32" r="14" stroke="currentColor" strokeWidth="4.8" />
                     <path
-                      d="M12 36V18C12 14.6863 14.6863 12 18 12H36L28 20H20V28L12 36Z"
+                      d="M 32 19.88 A 14 14 0 0 1 32 44.12 A 14 14 0 0 1 32 19.88 Z"
                       fill="currentColor"
                     />
-                    <path
-                      d="M52 28V46C52 49.3137 49.3137 52 46 52H28L36 44H44V36L52 28Z"
-                      fill="currentColor"
-                    />
-                    <rect
-                      x="32"
-                      y="22.8"
-                      width="13"
-                      height="13"
-                      rx="2.5"
-                      transform="rotate(45 32 22.8)"
-                      fill="#09090B"
-                      stroke="currentColor"
-                      strokeWidth="3.2"
-                    />
-                    <circle cx="32" cy="32" r="3" fill="#16A34A" />
                   </svg>
                 </div>
                 <div className="brand-text">

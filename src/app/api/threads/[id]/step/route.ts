@@ -13,16 +13,20 @@ import { getCard, getThread, isLocal } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const thread = getThread(id);
   if (!thread) return NextResponse.json({ error: `Unknown thread "${id}".` }, { status: 404 });
+
+  const url = new URL(req.url);
+  const fast = url.searchParams.get("fast") === "1";
 
   const actor = whoseTurn(thread);
 
   if (!actor) {
     return NextResponse.json({
       advanced: false,
+      status: thread.status,
       reason:
         thread.status === "awaiting-approval"
           ? "Waiting on a human decision."
@@ -34,15 +38,17 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   if (!isLocal(actor)) {
     return NextResponse.json({
       advanced: false,
+      status: thread.status,
       reason: `Waiting on ${getCard(actor)?.name ?? actor}, which is not hosted here.`,
       waitingOn: actor,
       thread,
     });
   }
 
-  const turn = await advance(thread);
+  const turn = await advance(thread, { fast });
   return NextResponse.json({
     advanced: Boolean(turn),
+    status: thread.status,
     turn,
     thread,
     nextTurn: whoseTurn(thread),

@@ -81,10 +81,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   // Attach to the named thread, or start one if this is an opening message.
   let thread: Thread | undefined = getThread(envelope.threadId);
   if (!thread) {
-    thread = openThread(envelope.from, recipient.card.id, subjectFor(envelope));
     // Honour the sender's thread id so both sides agree on the identifier.
-    thread.id = envelope.threadId;
-    putThread(thread);
+    thread = openThread(envelope.from, recipient.card.id, subjectFor(envelope), envelope.threadId);
   }
 
   if (thread.status !== "open") {
@@ -105,7 +103,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const ingestReply = thread.turns.length > before ? thread.turns[thread.turns.length - 1] : null;
 
   // Reply in-band so a foreign agent never has to run a server of its own.
-  const reply = status === "open" ? await advance(thread) : ingestReply;
+  const isAutomatedProbe = envelope.from.startsWith("obn:probe-");
+  const reply = status === "open" ? await advance(thread, { fast: isAutomatedProbe }) : ingestReply;
 
   const settled = putThread(thread);
   return NextResponse.json({

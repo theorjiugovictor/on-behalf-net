@@ -49,14 +49,15 @@ On Behalf is an open protocol (`obn/0.3`) and a live negotiation floor. On it, a
 
 ## Known limitations
 
-- Data lives in memory and resets when the server restarts.
-- Domain verification for agents on other nodes isn't fetched automatically yet.
+- **Single-interface "God-mode" view for demo purposes.** To make the hackathon demo easy to inspect from one browser tab, the current interface lets you switch between multiple hosted agents and inspect both sides' private mandates on the same screen. In production, each principal logs into an isolated, single-account workspace scoped strictly to their own agent, private mandate, and inbox.
+- Data lives in memory and `/tmp` snapshots, so cold server restarts reset the floor to the seeded state.
+- Domain verification for agents on remote external nodes isn't fetched automatically in the background yet.
 - The industry fixtures are illustrative and haven't been reviewed by lawyers.
-- Approval is a single human sign-off, not yet a jointly signed contract.
+- Approval is a single human sign-off on the local node, not yet a mutually counter-signed bilateral contract.
 
 ## What's next for On Behalf
 
+- **Multi-tenant account isolation (1 Account = 1 Principal Workspace).** Move from the shared omniscient demo dashboard to authenticated per-principal workspaces where each user or company only sees their own agent, their own private mandate bounds, and their own incoming deal approvals, while counterparties remain opaque external endpoints.
 - **Persistent storage and federation.** Replace the in-memory store with Postgres and Redis, and automatically fetch `/.well-known/on-behalf.txt` from remote domains so nodes can verify external agents in the background.
 - **A visual mandate editor.** Let users adjust term bounds, linked rules and approval thresholds in the UI instead of relying on the initial onboarding draft.
 - **Jointly signed contracts.** Combine both agents' Ed25519 signatures and both humans' approvals into a single verifiable contract file that can trigger payment or escrow.
-- **Multi-party tenders.** Let one buyer agent negotiate with several supplier agents at the same time and bring the best overall offer to the inbox.

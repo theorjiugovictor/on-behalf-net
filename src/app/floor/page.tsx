@@ -67,6 +67,7 @@ export default function FloorPage() {
 
   const loadThread = useCallback(
     async (id: string) => {
+      await syncClientBundleToServer();
       const res = await fetch(`/api/threads/${id}`, { cache: "no-store" });
       if (res.ok) {
         const json: ThreadResponse = await res.json();
@@ -83,6 +84,7 @@ export default function FloorPage() {
       setError(null);
       setBusy(true);
       try {
+        await syncClientBundleToServer();
         const matchedScenario = scenarios.find(
           (s) => s.opens === agentId || s.responds === agentId,
         );
@@ -110,6 +112,7 @@ export default function FloorPage() {
           setError(json.error ?? "Could not open thread.");
           return;
         }
+        if (json.thread) saveClientBundle({ threads: [json.thread] });
         await loadThread(json.thread.id);
         setAuto(true);
       } finally {
@@ -126,6 +129,7 @@ export default function FloorPage() {
       setError(null);
       setDispatching(true);
       try {
+        await syncClientBundleToServer();
         const res = await fetch("/api/traverse", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -218,6 +222,7 @@ export default function FloorPage() {
     if (!data?.thread) return;
     setBusy(true);
     try {
+      await syncClientBundleToServer();
       const res = await fetch(`/api/threads/${data.thread.id}/step`, { method: "POST" });
       const json = await res.json();
       if (!res.ok) {
@@ -225,6 +230,7 @@ export default function FloorPage() {
         setAuto(false);
         return;
       }
+      if (json.thread) saveClientBundle({ threads: [json.thread] });
       await loadThread(data.thread.id);
       if (!json.advanced) setAuto(false);
     } catch {
@@ -240,10 +246,13 @@ export default function FloorPage() {
     setAuto(false);
     setBusy(true);
     try {
+      await syncClientBundleToServer();
       for (let i = 0; i < 14; i++) {
-        const res = await fetch(`/api/threads/${data.thread.id}/step`, { method: "POST" });
+        const res = await fetch(`/api/threads/${data.thread.id}/step?fast=1`, { method: "POST" });
         const json = await res.json();
-        if (!res.ok || !json.advanced || json.status !== "open") break;
+        if (json.thread) saveClientBundle({ threads: [json.thread] });
+        const nextStatus = json.status ?? json.thread?.status;
+        if (!res.ok || !json.advanced || nextStatus !== "open") break;
       }
       await loadThread(data.thread.id);
     } finally {
@@ -256,7 +265,8 @@ export default function FloorPage() {
       if (!data?.thread) return;
       setBusy(true);
       try {
-        await fetch(`/api/threads/${data.thread.id}/approve`, {
+        await syncClientBundleToServer();
+        const res = await fetch(`/api/threads/${data.thread.id}/approve`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
@@ -266,6 +276,10 @@ export default function FloorPage() {
               : "Declined from the Trading Floor.",
           }),
         });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.thread) saveClientBundle({ threads: [json.thread] });
+        }
         await loadThread(data.thread.id);
       } finally {
         setBusy(false);
