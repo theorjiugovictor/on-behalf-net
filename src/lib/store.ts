@@ -10,7 +10,7 @@
 
 import type { LocalAgent, AgentCard, AttestationLevel, Thread } from "./types";
 import type { Challenge } from "./attestation";
-import { SCENARIOS, seedAgents, type Scenario } from "./seed";
+import { SCENARIOS, seedAgents, seedInitialThread, type Scenario } from "./seed";
 
 type Store = {
   agents: Map<string, LocalAgent>;
@@ -49,13 +49,23 @@ function create(): Store {
   };
   for (const agent of seedAgents()) store.agents.set(agent.card.id, agent);
   for (const scenario of SCENARIOS) store.scenarios.set(scenario.id, scenario);
+  const initialThread = seedInitialThread(store.agents);
+  if (initialThread) store.threads.set(initialThread.id, initialThread);
   return store;
 }
 
 const store: Store = globalThis.__obnStore ?? (globalThis.__obnStore = create());
-if (!store.scenarios) {
-  store.scenarios = new Map();
+if (
+  !store.scenarios ||
+  store.agents.get("obn:meridian-coldchain")?.mandate.subject !== "reefer-lane-stockholm-copenhagen"
+) {
+  store.scenarios = store.scenarios ?? new Map();
+  for (const agent of seedAgents()) store.agents.set(agent.card.id, agent);
   for (const scenario of SCENARIOS) store.scenarios.set(scenario.id, scenario);
+}
+if (store.threads.size === 0) {
+  const initialThread = seedInitialThread(store.agents);
+  if (initialThread) store.threads.set(initialThread.id, initialThread);
 }
 
 // --- agents & scenarios ---------------------------------------------------

@@ -12,9 +12,9 @@
 
 import { NextResponse } from "next/server";
 import { generateKeyPair, newId } from "@/lib/identity";
-import { buildCounterpartyFor, draftFromDescription, starterMandate } from "@/lib/onboarding";
+import { draftFromDescription, launchAutonomousDeal, starterMandate } from "@/lib/onboarding";
 import { isEmail, newChallenge, newCode } from "@/lib/attestation";
-import { getCard, putAgent, putChallenge, putScenario, setContact } from "@/lib/store";
+import { getCard, putAgent, putChallenge, setContact } from "@/lib/store";
 import { publicSpec } from "@/lib/terms";
 import { PROTOCOL, type LocalAgent } from "@/lib/types";
 
@@ -82,9 +82,7 @@ export async function POST(req: Request) {
   putAgent(agent);
   setContact(id, { email });
 
-  const { counterparty, scenario } = buildCounterpartyFor(agent, origin);
-  putAgent(counterparty);
-  putScenario(scenario);
+  const { counterparty, scenario, thread } = await launchAutonomousDeal(agent, origin);
 
   const code = newCode();
   putChallenge(newChallenge(id, email, code));
@@ -97,6 +95,10 @@ export async function POST(req: Request) {
       mandate: agent.mandate,
       counterparty: counterparty.card,
       scenarioId: scenario.id,
+      threadId: thread.id,
+      threadStatus: thread.status,
+      turnsCount: thread.turns.length,
+      settledDeal: thread.pendingApproval?.deal ?? thread.settledDeal,
       drafted: Boolean(draft),
       verification: {
         method: "email",

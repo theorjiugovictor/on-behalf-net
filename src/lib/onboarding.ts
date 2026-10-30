@@ -14,9 +14,11 @@
 
 import { generateKeyPair, newId } from "./identity";
 import { chatJSON } from "./llm";
+import { advance, openThread } from "./negotiate";
+import { putAgent, putScenario } from "./store";
 import { publicSpec } from "./terms";
 import type { Scenario } from "./seed";
-import { PROTOCOL, type Direction, type LocalAgent, type Mandate, type TermSpec } from "./types";
+import { PROTOCOL, type Direction, type LocalAgent, type Mandate, type TermSpec, type Thread } from "./types";
 
 export type DraftTerm = {
   key?: string;
@@ -483,6 +485,31 @@ export function buildCounterpartyFor(
   };
 
   return { counterparty, scenario };
+}
+
+/**
+ * End-to-end autonomous agent launch:
+ * Once a human creates an agent, the agent immediately discovers a matched
+ * counterparty, opens a thread on the floor, negotiates turn-by-turn under
+ * its mathematical mandate until convergence, and parks the converged deal in
+ * `/inbox` (`awaiting-approval`) so human sign-off is the ONLY remaining step.
+ */
+export async function launchAutonomousDeal(
+  primary: LocalAgent,
+  origin: string,
+): Promise<{ counterparty: LocalAgent; scenario: Scenario; thread: Thread }> {
+  const { counterparty, scenario } = buildCounterpartyFor(primary, origin);
+  putAgent(counterparty);
+  putScenario(scenario);
+
+  const thread = openThread(primary.card.id, counterparty.card.id, scenario.title);
+  for (let i = 0; i < 16; i++) {
+    if (thread.status !== "open") break;
+    const turn = await advance(thread);
+    if (!turn) break;
+  }
+
+  return { counterparty, scenario, thread };
 }
 
 function mirrorTermSpec(spec: TermSpec): TermSpec {

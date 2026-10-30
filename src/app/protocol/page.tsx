@@ -103,7 +103,9 @@ export default function ProtocolPage() {
   "from": "obn:your-company",
   "to": "${sample?.card.id ?? "obn:their-company"}",
   "type": "propose",          // propose | counter | accept | reject | escalate
-  "ts": "2026-01-01T00:00:00.000Z",
+  "ts": "2026-10-30T10:00:00.000Z",
+  "validUntil": "2026-10-31T10:00:00.000Z",
+  "nonce": "non_8f3a91c2e4b01d76",
   "body": {
     "deal": {
       "subject": "${sample?.mandate.subject ?? "what-you-trade"}",

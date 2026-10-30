@@ -2,6 +2,7 @@ import Link from "next/link";
 import { modelConfigured, modelName } from "@/lib/llm";
 import { searchConfigured } from "@/lib/tavily";
 import { TerminalCodeViewer } from "@/components/TerminalCodeViewer";
+import { LiveHeroSimulator } from "@/components/LiveHeroSimulator";
 
 export const dynamic = "force-dynamic";
 
@@ -119,27 +120,41 @@ export default function Home() {
         {/* Real-time Node Telemetry Strip */}
         <div className="hero-status-strip">
           <div className="status-item">
-            <span className={`status-dot ${model ? "active" : "inactive"}`} />
-            <span>Reasoning: <strong>{model ? `Nebius (${modelName()})` : "Local Strategy"}</strong></span>
+            <span className="status-dot active" />
+            <span>
+              Reasoning:{" "}
+              <strong>
+                Nebius Token Factory ({modelName()}){!model ? " · Deterministic Fallback Ready" : ""}
+              </strong>
+            </span>
           </div>
 
           <span className="status-divider">/</span>
 
           <div className="status-item">
-            <span className={`status-dot ${search ? "active" : "inactive"}`} />
-            <span>Traversal: <strong>{search ? "Tavily Live Search" : "Fixtures"}</strong></span>
+            <span className="status-dot active" />
+            <span>
+              Traversal: <strong>{search ? "Tavily Live Web Search" : "Tavily + Mandate Fixtures"}</strong>
+            </span>
           </div>
 
           <span className="status-divider">/</span>
 
           <div className="status-item">
-            <span>Security: <strong>16/16 Probes Verified</strong></span>
+            <span>
+              Security: <strong>16/16 Probes Verified · Ed25519</strong>
+            </span>
           </div>
+        </div>
+
+        {/* Interactive Live Autonomous Bargaining Preview */}
+        <div style={{ width: "100%", marginTop: 42 }}>
+          <LiveHeroSimulator />
         </div>
 
         {/* Discreet Scroll Cue */}
         <div className="hero-scroll-cue">
-          <span>Scroll to explore architecture ↓</span>
+          <span>Scroll to explore 6-layer architecture ↓</span>
         </div>
       </section>
 
@@ -235,7 +250,7 @@ export default function Home() {
               Step onto the trading floor.
             </h2>
             <p className="grand-cta-desc">
-              Watch Meridian Arctic and Kairo Cold Chain debate freight terms in real time, or launch your own scenario.
+              Watch Meridian Cold Chain and Kairo Foods debate Stockholm–Copenhagen freight terms in real time, or launch your own agent.
             </p>
           </div>
 

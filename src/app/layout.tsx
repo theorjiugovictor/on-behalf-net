@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { GameBackground3D } from "@/components/GameBackground3D";
 import { ScanQRButton } from "@/components/ScanQRButton";
+import { InboxNavLink } from "@/components/InboxNavLink";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -85,9 +86,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/floor" className="nav-link">
                 Floor
               </Link>
-              <Link href="/inbox" className="nav-link">
-                Inbox
-              </Link>
+              <InboxNavLink />
               <Link href="/traverse" className="nav-link">
                 Traversal
               </Link>

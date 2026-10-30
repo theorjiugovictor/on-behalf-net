@@ -11,7 +11,19 @@
  */
 
 const BASE_URL = process.env.NEBIUS_BASE_URL ?? "https://api.studio.nebius.com/v1";
-const MODEL = process.env.NEBIUS_MODEL ?? "nvidia/nemotron-3-super-120b-a12b";
+const DEFAULT_NEMOTRON_MODEL = "nvidia/nemotron-3-super-120b-a12b";
+
+function resolveModel(): string {
+  const raw = process.env.NEBIUS_MODEL?.trim();
+  if (!raw) return DEFAULT_NEMOTRON_MODEL;
+  // Ensure stale non-NVIDIA env vars on deployment environments never override the NVIDIA Nemotron model
+  if (!raw.toLowerCase().includes("nemotron") && !raw.toLowerCase().includes("nvidia/")) {
+    return DEFAULT_NEMOTRON_MODEL;
+  }
+  return raw;
+}
+
+const MODEL = resolveModel();
 const TIMEOUT_MS = Number(process.env.NEBIUS_TIMEOUT_MS ?? 20_000);
 
 const getApiKey = () =>

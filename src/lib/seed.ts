@@ -14,9 +14,10 @@
  * Keys are generated fresh at boot. Nothing here should be reused in production.
  */
 
-import { generateKeyPair } from "./identity";
+import { generateKeyPair, newId, signEnvelope } from "./identity";
+import { evaluateDeal } from "./mandate";
 import { publicSpec } from "./terms";
-import type { LocalAgent, Mandate, Opportunity, TermSpec } from "./types";
+import type { Deal, LocalAgent, Mandate, Opportunity, TermSpec, Thread, TurnRecord } from "./types";
 import { PROTOCOL } from "./types";
 
 const publicBase = () => process.env.OBN_PUBLIC_URL ?? "http://localhost:3000";
@@ -99,14 +100,14 @@ export const SCENARIOS: Scenario[] = [
   {
     id: "freight",
     title: "Refrigerated freight",
-    blurb: "A carrier and a shipper on rate, volume, term and payment days.",
-    subject: "reefer-lane-lagos-accra",
+    blurb: "A Nordic carrier and shipper on the Stockholm–Copenhagen corridor negotiating rate, volume, term and payment days.",
+    subject: "reefer-lane-stockholm-copenhagen",
     opens: "obn:meridian-coldchain",
     responds: "obn:kairo-foods",
     ricardian: {
       templateId: "bimco-reefer-standard-2024",
       templateHash: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      jurisdiction: "UK-EW",
+      jurisdiction: "SE-STHLM / DK-CPH",
     },
   },
   {
@@ -141,17 +142,158 @@ export function seedAgents(): LocalAgent[] {
   return [...freightPair(), ...recruitingPair(), ...sponsorshipPair()];
 }
 
+/**
+ * Seed one pre-converged negotiation thread parked at `awaiting-approval` so
+ * the Human Approval Inbox (`/inbox`) and navbar badge immediately showcase a
+ * live multi-turn signed agreement on first visit.
+ */
+export function seedInitialThread(agents: Map<string, LocalAgent>): Thread | null {
+  const lantern = agents.get("obn:lantern-talent");
+  const arcadia = agents.get("obn:arcadia-robotics");
+  if (!lantern || !arcadia) return null;
+
+  const threadId = "thr_seed_robotics_search";
+  const subject = "senior-robotics-engineer-search";
+  const now = Date.now();
+  const validUntil = new Date(now + 24 * 60 * 60 * 1000).toISOString();
+
+  const makeTurn = (
+    sender: LocalAgent,
+    recipient: LocalAgent,
+    type: "propose" | "counter" | "escalate",
+    deal: Deal,
+    rationale: string,
+    offsetMs: number,
+    reason?: string,
+  ): TurnRecord => {
+    const verdict = evaluateDeal(deal, sender.mandate, { counterparty: recipient.card });
+    const envelope = signEnvelope(
+      {
+        protocol: PROTOCOL,
+        id: newId("msg"),
+        threadId,
+        from: sender.card.id,
+        to: recipient.card.id,
+        type,
+        ts: new Date(now - offsetMs).toISOString(),
+        validUntil,
+        nonce: newId("non"),
+        body: {
+          deal,
+          rationale,
+          ...(reason ? { reason } : {}),
+        },
+      },
+      sender.privateKey,
+    );
+    return { envelope, verdict };
+  };
+
+  const deal1: Deal = {
+    subject,
+    terms: {
+      placement_fee: 24_500,
+      roles: 3,
+      guarantee_days: 45,
+      exclusivity_weeks: 6,
+      start_date: "2026-11-01",
+      clauses: ["background-check", "reference-check", "staged-invoicing"],
+    },
+  };
+
+  const deal2: Deal = {
+    subject,
+    terms: {
+      placement_fee: 19_500,
+      roles: 2,
+      guarantee_days: 90,
+      exclusivity_weeks: 2,
+      start_date: "2026-11-15",
+      clauses: ["background-check", "reference-check"],
+    },
+  };
+
+  const deal3: Deal = {
+    subject,
+    terms: {
+      placement_fee: 23_000,
+      roles: 2,
+      guarantee_days: 75,
+      exclusivity_weeks: 4,
+      start_date: "2026-11-10",
+      clauses: ["background-check", "reference-check", "staged-invoicing"],
+    },
+  };
+
+  const t1 = makeTurn(
+    lantern,
+    arcadia,
+    "propose",
+    deal1,
+    "Opening retained search for senior controls engineers across Europe at $24,500/role for 3 roles with a 45-day guarantee.",
+    180_000,
+  );
+  const t2 = makeTurn(
+    arcadia,
+    lantern,
+    "counter",
+    deal2,
+    "We are committing 2 roles initially and need a 90-day replacement guarantee at $19,500/role.",
+    120_000,
+  );
+  const t3 = makeTurn(
+    lantern,
+    arcadia,
+    "counter",
+    deal3,
+    "Moving to $23,000/role for 2 roles with a 75-day replacement guarantee and 4-week exclusivity window.",
+    60_000,
+  );
+
+  const finalVerdict = evaluateDeal(deal3, arcadia.mandate, { counterparty: lantern.card });
+  const reason =
+    finalVerdict.approvalReason ??
+    "Total of USD 46,000 (Placement fee × Roles committed) is at or above the USD 45,000 threshold for human sign-off.";
+
+  const t4 = makeTurn(
+    arcadia,
+    lantern,
+    "escalate",
+    deal3,
+    `Terms are inside my mandate and we have converged on Placement fee USD 23,000, Roles committed 2 roles ($46,000 total). This exceeds my $45,000 autonomous authority, so I have referred it to a human at Arcadia Robotics.`,
+    15_000,
+    reason,
+  );
+
+  return {
+    id: threadId,
+    a: lantern.card.id,
+    b: arcadia.card.id,
+    subject: "Executive search",
+    status: "awaiting-approval",
+    turns: [t1, t2, t3, t4],
+    pendingApproval: {
+      agentId: arcadia.card.id,
+      deal: deal3,
+      reason,
+      verdict: finalVerdict,
+    },
+    createdAt: new Date(now - 180_000).toISOString(),
+    updatedAt: new Date(now - 15_000).toISOString(),
+  };
+}
+
 // --- 1. Refrigerated freight ----------------------------------------------
 
 function freightPair(): LocalAgent[] {
-  const subject = "reefer-lane-lagos-accra";
+  const subject = "reefer-lane-stockholm-copenhagen";
   return [
     agent(
       "obn:meridian-coldchain",
       "Meridian Cold Chain",
       "meridiancoldchain.com",
-      "We operate refrigerated road freight across West Africa. We sell dedicated " +
-        "temperature-controlled lane capacity on fixed-term contracts, and we are " +
+      "We operate refrigerated road freight across Sweden, Denmark, and Northern Europe. We sell dedicated " +
+        "temperature-controlled lane capacity on the Stockholm–Copenhagen Øresund corridor, and we are " +
         "looking for shippers with predictable seasonal volume.",
       {
         version: 3,
@@ -202,7 +344,7 @@ function freightPair(): LocalAgent[] {
       "obn:kairo-foods",
       "Kairo Foods",
       "kairofoods.com",
-      "We move fresh produce and chilled dairy from Lagos into Ghana. We buy " +
+      "We move fresh Nordic produce and chilled dairy from Stockholm into Copenhagen and across Denmark. We buy " +
         "refrigerated lane capacity and care more about reliability and claims " +
         "history than headline rate.",
       {
@@ -447,24 +589,24 @@ const FIXTURES: Record<string, Opportunity[]> = {
   "obn:meridian-coldchain": [
     {
       id: "opp_fx_s1",
-      title: "Kairo Foods expands chilled dairy distribution into Ghana",
-      url: "https://kairofoods.com/press/ghana-expansion",
+      title: "Kairo Foods expands chilled dairy distribution into Copenhagen & Denmark",
+      url: "https://kairofoods.com/press/copenhagen-expansion",
       snippet:
-        "Kairo Foods will begin weekly chilled dairy shipments into Accra, citing " +
-        "demand from three national grocery chains.",
+        "Kairo Foods will begin weekly chilled dairy shipments from Stockholm into Copenhagen, citing " +
+        "demand from three national Danish grocery chains.",
       reason:
-        "A shipper with recurring weekly volume on exactly the lane you sell. " +
+        "A shipper with recurring weekly volume on exactly the Stockholm–Copenhagen lane you sell. " +
         "Predictable seasonal volume is the profile your mandate targets.",
       score: 0.96,
       counterpartyDomain: "kairofoods.com",
     },
     {
       id: "opp_fx_s2",
-      title: "West African produce exporters flag cold chain shortage",
-      url: "https://example-trade-press.com/wa-cold-chain-shortage",
+      title: "Nordic produce exporters flag Øresund cold chain capacity crunch",
+      url: "https://example-trade-press.com/nordic-cold-chain-capacity",
       snippet:
-        "Exporters report losing up to 18% of chilled cargo to gaps in refrigerated " +
-        "road capacity between Lagos and Accra.",
+        "Exporters report losing up to 18% of chilled delivery slots to gaps in refrigerated " +
+        "road capacity between Stockholm, Malmö, and Copenhagen.",
       reason:
         "Demand-side pressure on your lane. Supports holding nearer the top of " +
         "your permitted range in the opening quote.",
@@ -474,11 +616,11 @@ const FIXTURES: Record<string, Opportunity[]> = {
   "obn:kairo-foods": [
     {
       id: "opp_fx_b1",
-      title: "Meridian Cold Chain opens second Lagos–Accra reefer corridor",
-      url: "https://meridiancoldchain.com/news/lagos-accra-corridor",
+      title: "Meridian Cold Chain opens second Stockholm–Copenhagen reefer corridor",
+      url: "https://meridiancoldchain.com/news/stockholm-copenhagen-corridor",
       snippet:
-        "Meridian has added eleven reefer units to the Lagos–Accra lane and is " +
-        "offering fixed-term capacity contracts ahead of the harvest season.",
+        "Meridian has added eleven electric-hybrid reefer units to the Stockholm–Copenhagen lane and is " +
+        "offering fixed-term capacity contracts ahead of the peak season.",
       reason:
         "Direct match for the lane in your mandate, and new capacity usually " +
         "means rate flexibility before it is committed elsewhere.",
@@ -487,9 +629,9 @@ const FIXTURES: Record<string, Opportunity[]> = {
     },
     {
       id: "opp_fx_b2",
-      title: "Sahel Logistics posts spot reefer rates for Q4",
-      url: "https://example-freight-index.com/sahel-q4-reefer",
-      snippet: "Spot rates on the corridor are quoted between USD 910 and USD 1,040.",
+      title: "Øresund & Baltic Logistics posts spot reefer rates for Q4",
+      url: "https://example-freight-index.com/oresund-q4-reefer",
+      snippet: "Spot rates on the Stockholm–Copenhagen corridor are quoted between USD 910 and USD 1,040.",
       reason:
         "Useful pricing anchor: your ceiling sits near the bottom of the current " +
         "spot band, so a fixed-term deal is worth pursuing.",

@@ -8,8 +8,8 @@
 
 import { NextResponse } from "next/server";
 import { agentIdForDomain, generateKeyPair } from "@/lib/identity";
-import { listAgents, listScenarios, putAgent, putScenario, rememberForeignCard, getCard } from "@/lib/store";
-import { buildCounterpartyFor } from "@/lib/onboarding";
+import { listAgents, listScenarios, putAgent, rememberForeignCard, getCard } from "@/lib/store";
+import { launchAutonomousDeal } from "@/lib/onboarding";
 import { publicSpec } from "@/lib/terms";
 import { PROTOCOL, type AgentCard, type LocalAgent, type Mandate } from "@/lib/types";
 
@@ -111,9 +111,7 @@ export async function POST(req: Request) {
     createdAt: new Date().toISOString(),
   };
   putAgent(agent);
-  const { counterparty, scenario } = buildCounterpartyFor(agent, base);
-  putAgent(counterparty);
-  putScenario(scenario);
+  const { counterparty, scenario, thread } = await launchAutonomousDeal(agent, base);
 
   return NextResponse.json(
     {
@@ -122,6 +120,9 @@ export async function POST(req: Request) {
       mandate: agent.mandate,
       counterparty: counterparty.card,
       scenarioId: scenario.id,
+      threadId: thread.id,
+      threadStatus: thread.status,
+      turnsCount: thread.turns.length,
     },
     { status: 201 },
   );

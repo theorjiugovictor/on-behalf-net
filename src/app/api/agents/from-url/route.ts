@@ -13,8 +13,8 @@
 import { NextResponse } from "next/server";
 import { agentIdForDomain, generateKeyPair } from "@/lib/identity";
 import { extract } from "@/lib/tavily";
-import { buildCounterpartyFor, draftFromPage, starterMandate, titleFromDomain } from "@/lib/onboarding";
-import { getCard, putAgent, putScenario } from "@/lib/store";
+import { draftFromPage, launchAutonomousDeal, starterMandate, titleFromDomain } from "@/lib/onboarding";
+import { getCard, putAgent } from "@/lib/store";
 import { publicSpec } from "@/lib/terms";
 import { PROTOCOL, type LocalAgent } from "@/lib/types";
 
@@ -81,9 +81,7 @@ export async function POST(req: Request) {
 
   putAgent(agent);
 
-  const { counterparty, scenario } = buildCounterpartyFor(agent, origin);
-  putAgent(counterparty);
-  putScenario(scenario);
+  const { counterparty, scenario, thread } = await launchAutonomousDeal(agent, origin);
 
   return NextResponse.json(
     {
@@ -92,6 +90,10 @@ export async function POST(req: Request) {
       mandate: agent.mandate,
       counterparty: counterparty.card,
       scenarioId: scenario.id,
+      threadId: thread.id,
+      threadStatus: thread.status,
+      turnsCount: thread.turns.length,
+      settledDeal: thread.pendingApproval?.deal ?? thread.settledDeal,
       drafted: Boolean(draft),
       readSite: Boolean(pageText),
       notice:
